@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 import gensim
+import pickle
+import datetime
+import xgboost as xgb
 from fuzzywuzzy import fuzz
 from nltk import word_tokenize
 from nltk.corpus import stopwords
@@ -64,6 +67,55 @@ def sent2vec(s):
     M = np.array(M)
     v = M.sum(axis=0)
     return v / np.sqrt((v ** 2).sum())
+
+def create_submission(score, pred, model):
+    """
+    Saving model, features and submission
+    """
+    ouDir = '../output/'
+    
+    now = datetime.datetime.now()
+    scrstr = "{:0.4f}_{}".format(score,now.strftime("%Y-%m-%d-%H%M"))
+    
+    mod_file = ouDir + '.model_' + scrstr + '.model'
+    if model:
+        print('Writing model: ', mod_file)
+        pickle.dump(model,open(mod_file,'wb'))
+    
+    sub_file = ouDir + 'submit_' + scrstr + '.csv'
+    print('Writing submission: ', sub_file)
+    pred.to_csv(sub_file, index=False)
+
+def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,\
+    seed_val=0, num_rounds=2000, max_depth=6, eta=0.03):
+    param = {}
+    param['objective'] = 'binary:logistic'
+    param['eval_metric'] = 'logloss'
+    param['eta'] = eta
+    param['max_depth'] = max_depth
+    param['silent'] = 1
+    param['min_child_weight'] = 1
+    param['subsample'] = 0.8
+    param['colsample_bytree'] = 0.8
+    param['seed'] = seed_val
+    num_rounds = num_rounds
+
+    plst = list(param.items())
+    xgtrain = xgb.DMatrix(train_X, label=train_y)
+
+    if test_y is not None:
+        xgtest = xgb.DMatrix(test_X, label=test_y)
+        watchlist = [ (xgtrain,'train'), (xgtest, 'test') ]
+        model = xgb.train(plst, xgtrain, num_rounds, watchlist,\
+            early_stopping_rounds=100,verbose_eval=10)
+    else:
+        xgtest = xgb.DMatrix(test_X)
+        watchlist = [ (xgtrain,'train') ]
+        model = xgb.train(plst, xgtrain, num_rounds, watchlist,\
+          verbose_eval=10)
+
+    pred_test_y = model.predict(xgtest)
+    return pred_test_y, model
 
 
 train = pd.read_csv('../input/train.csv')
@@ -160,42 +212,55 @@ y = train['is_duplicate'].values
 # Oversample to compensate for a different test set
 pos_train = train_df[y == 1]
 neg_train = train_df[y == 0]
-
 p = 0.165
 scale = ((len(pos_train) / (len(pos_train) + len(neg_train))) / p) - 1
 while scale > 1:
     neg_train = pd.concat([neg_train, neg_train])
     scale -=1
 neg_train = pd.concat([neg_train, neg_train[:int(scale * len(neg_train))]])
-
 x_train = pd.concat([pos_train, neg_train])
 y_train = (np.zeros(len(pos_train)) + 1).tolist() + np.zeros(len(neg_train)).tolist()
 del pos_train, neg_train
 
 pipe = Pipeline([
     ('features', FeatureUnion([
-        ('fs1', Pipeline([
+        ('abhishek', Pipeline([
             ('get', PipeExtractor(fs1+fs2+fs4)),
             ('shape', PipeShape())
         ]))
     ])),
-    ('clf',LGBMClassifier(objective='binary'))
 ])
 
-mode = 'Val'
+mode = 'Train'
 
 if mode == 'Val':
   x_train, x_valid, y_train, y_valid =\
     train_test_split(x_train,y_train,test_size=0.2)
 
-  # x_train = pipe.fit_transform(x_train,y_train)
-  # x_valid = pipe.transform(x_valid)
+  x_train = pipe.fit_transform(x_train,y_train)
+  x_valid = pipe.transform(x_valid)
 
-  # gbm = LGBMClassifier(objective='binary',
-  #   learning_rate=0.4,n_estimators=6000,max_depth=-1)
-  # gbm.fit(x_train, y_train,eval_set=[(x_valid, y_valid)],
-  #   eval_metric='binary_logloss',early_stopping_rounds=50)
-  pipe.fit(x_train,y_train)
-    # clf__eval_set=[(x_valid, y_valid)],
-    # clf__eval_metric='binary_logloss',
-    # clf__early_stopping_rounds=50)
+  # model = LGBMClassifier(objective='binary',
+  #   learning_rate=0.4,n_estimators=6000,max_depth=8)
+  # model.fit(x_train, y_train,eval_set=[(x_valid, y_valid)],
+  #   early_stopping_rounds=50)
+
+  preds, model = runXGB(x_train,y_train,x_valid,y_valid,
+            num_rounds=400,max_depth=6,eta=0.1)
+
+if mode == 'Train':
+  x_train = pipe.fit_transform(x_train,y_train)
+  x_test = pipe.transform(test_df)
+
+  # model = LGBMClassifier(objective='binary',
+  #   learning_rate=0.4,n_estimators=5607,max_depth=8)
+  # model.fit(x_train, y_train)
+
+  predictions, model = runXGB(x_train,y_train,x_test,
+            num_rounds=400,max_depth=6,eta=0.1)
+  
+  preds = pd.DataFrame()
+  preds['test_id'] = test['test_id']
+  preds['is_duplicate'] = predictions
+
+  create_submission(0.320605,preds,model)
