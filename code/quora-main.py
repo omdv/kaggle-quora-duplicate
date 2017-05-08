@@ -4,6 +4,7 @@ import gensim
 import pickle
 import datetime
 import xgboost as xgb
+import lightgbm as lgb
 from fuzzywuzzy import fuzz
 from nltk import word_tokenize
 from nltk.corpus import stopwords
@@ -77,7 +78,7 @@ def create_submission(score, pred, model):
     now = datetime.datetime.now()
     scrstr = "{:0.4f}_{}".format(score,now.strftime("%Y-%m-%d-%H%M"))
     
-    mod_file = ouDir + '.model_' + scrstr + '.model'
+    mod_file = ouDir + 'model_' + scrstr + '.model'
     if model:
         print('Writing model: ', mod_file)
         pickle.dump(model,open(mod_file,'wb'))
@@ -87,7 +88,7 @@ def create_submission(score, pred, model):
     pred.to_csv(sub_file, index=False)
 
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,\
-    seed_val=0, num_rounds=2000, max_depth=6, eta=0.03):
+    seed_val=0, num_rounds=2000, max_depth=6, eta=0.03, scale_pos_weight=1.0):
     param = {}
     param['objective'] = 'binary:logistic'
     param['eval_metric'] = 'logloss'
@@ -98,6 +99,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,\
     param['subsample'] = 0.8
     param['colsample_bytree'] = 0.8
     param['seed'] = seed_val
+    param['scale_pos_weight'] = scale_pos_weight
     num_rounds = num_rounds
 
     plst = list(param.items())
@@ -114,9 +116,46 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,\
         model = xgb.train(plst, xgtrain, num_rounds, watchlist,\
           verbose_eval=10)
 
-    pred_test_y = model.predict(xgtest)
+    if test_y is None:
+      pred_test_y = model.predict(xgtest)
+    else:
+      pred_test_y = None
     return pred_test_y, model
 
+def runLGB(train_X, train_y, test_X, test_y=None, feature_names=None,\
+    seed_val=0, num_rounds=2000, max_depth=6, eta=0.03, scale_pos_weight=1.0):
+    params = {
+      'objective': 'binary',
+      'metric': 'binary_logloss',
+      'eta': eta,
+      'max_depth': max_depth,
+      'silent': 1,
+      'min_child_weight': 1,
+      'subsample': 0.8,
+      'colsample_bytree': 0.8,
+      'seed': seed_val,
+      'verbose': 0,
+      'scale_pos_weight':scale_pos_weight
+    }
+
+    xgtrain = lgb.Dataset(train_X, train_y)
+
+    if test_y is not None:
+        xgtest = lgb.Dataset(test_X, test_y, reference=xgtrain)
+        model = lgb.train(params, xgtrain,
+          num_boost_round=num_rounds,
+          valid_sets=xgtest,
+          early_stopping_rounds=100)
+    else:
+        model = lgb.train(params, xgtrain,
+          num_boost_round=num_rounds,
+          valid_sets=xgtrain)
+
+    if test_y is None:
+      pred_test_y = model.predict(test_X)
+    else:
+      pred_test_y = None
+    return pred_test_y, model
 
 train = pd.read_csv('../input/train.csv')
 test = pd.read_csv('../input/test.csv')
@@ -207,20 +246,23 @@ fs4 = ['wmd','norm_wmd','cosine_distance','cityblock_distance',\
 # read pre-calculated features
 train_df = pd.read_csv('../input/train_features.csv', encoding = "ISO-8859-1")
 test_df = pd.read_csv('../input/test_features.csv', encoding = "ISO-8859-1")
-y = train['is_duplicate'].values
+y_train = train['is_duplicate'].values
+x_train = train_df
 
-# Oversample to compensate for a different test set
-pos_train = train_df[y == 1]
-neg_train = train_df[y == 0]
-p = 0.165
-scale = ((len(pos_train) / (len(pos_train) + len(neg_train))) / p) - 1
-while scale > 1:
-    neg_train = pd.concat([neg_train, neg_train])
-    scale -=1
-neg_train = pd.concat([neg_train, neg_train[:int(scale * len(neg_train))]])
-x_train = pd.concat([pos_train, neg_train])
-y_train = (np.zeros(len(pos_train)) + 1).tolist() + np.zeros(len(neg_train)).tolist()
-del pos_train, neg_train
+# Oversample to compensate for a different distribution in test set
+oversample = 0
+if oversample:
+  pos_train = train_df[y_train == 1]
+  neg_train = train_df[y_train == 0]
+  p = 0.174
+  scale = ((len(pos_train) / (len(pos_train) + len(neg_train))) / p) - 1
+  while scale > 1:
+      neg_train = pd.concat([neg_train, neg_train])
+      scale -=1
+  neg_train = pd.concat([neg_train, neg_train[:int(scale * len(neg_train))]])
+  x_train = pd.concat([pos_train, neg_train])
+  y_train = (np.zeros(len(pos_train)) + 1).tolist() + np.zeros(len(neg_train)).tolist()
+  del pos_train, neg_train
 
 pipe = Pipeline([
     ('features', FeatureUnion([
@@ -237,30 +279,42 @@ if mode == 'Val':
   x_train, x_valid, y_train, y_valid =\
     train_test_split(x_train,y_train,test_size=0.2)
 
+  # change validation to have the same distribution as test
+  target = 0.175
+  pos_idx = np.where(y_valid == 1)[0]
+  neg_idx = np.where(y_valid == 0)[0]
+  new_n_pos = np.int(target*len(neg_idx)/(1-target))
+
+  np.random.shuffle(pos_idx)
+  idx_to_keep = np.sort(pos_idx[:new_n_pos])
+  idx_to_drop = np.sort(pos_idx[new_n_pos:])
+
+  y_valid = np.delete(y_valid, idx_to_drop)
+  x_valid = x_valid.drop(x_valid.index[idx_to_drop])
+
+  # process pipelines  
   x_train = pipe.fit_transform(x_train,y_train)
   x_valid = pipe.transform(x_valid)
 
-  # model = LGBMClassifier(objective='binary',
-  #   learning_rate=0.4,n_estimators=6000,max_depth=8)
-  # model.fit(x_train, y_train,eval_set=[(x_valid, y_valid)],
-  #   early_stopping_rounds=50)
+  # preds, model = runXGB(x_train,y_train,x_valid,y_valid,
+  #           num_rounds=6000,max_depth=6,eta=0.1)
 
-  preds, model = runXGB(x_train,y_train,x_valid,y_valid,
-            num_rounds=400,max_depth=6,eta=0.1)
+  preds, model = runLGB(x_train,y_train,x_valid,y_valid,
+            num_rounds=10000,max_depth=6,eta=0.1,scale_pos_weight=0.36)
+
 
 if mode == 'Train':
   x_train = pipe.fit_transform(x_train,y_train)
   x_test = pipe.transform(test_df)
 
-  # model = LGBMClassifier(objective='binary',
-  #   learning_rate=0.4,n_estimators=5607,max_depth=8)
-  # model.fit(x_train, y_train)
+  # predictions, model = runXGB(x_train,y_train,x_test,
+  #           num_rounds=6000,max_depth=6,eta=0.1)
 
-  predictions, model = runXGB(x_train,y_train,x_test,
-            num_rounds=400,max_depth=6,eta=0.1)
+  predictions, model = runLGB(x_train,y_train,x_test,
+            num_rounds=3218,max_depth=6,eta=0.1,scale_pos_weight=0.36)
   
+  # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-
-  create_submission(0.320605,preds,model)
+  create_submission(0.319563,preds,model)
