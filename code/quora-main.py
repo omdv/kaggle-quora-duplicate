@@ -20,6 +20,12 @@ from lightgbm import LGBMClassifier
 np.random.seed(42)
 stop_words = stopwords.words('english')
 
+def try_apply_dict(x,dict_to_apply):
+    try:
+        return dict_to_apply[x]
+    except KeyError:
+        return 0
+
 class PipeShape(BaseEstimator, TransformerMixin):
     def fit(self, x, y=None):
         return self
@@ -157,8 +163,14 @@ def runLGB(train_X, train_y, test_X, test_y=None, feature_names=None,\
       pred_test_y = None
     return pred_test_y, model
 
+# read original
 train = pd.read_csv('../input/train.csv')
 test = pd.read_csv('../input/test.csv')
+
+# read pre-calculated Abshishek features
+train_df = pd.read_csv('../input/train_features.csv', encoding = "ISO-8859-1")
+test_df = pd.read_csv('../input/test_features.csv', encoding = "ISO-8859-1")
+
 # data = pd.concat([train_df,test_df])
 # data = data.drop(['id', 'qid1', 'qid2'], axis=1)
 
@@ -243,9 +255,48 @@ fs4 = ['wmd','norm_wmd','cosine_distance','cityblock_distance',\
   'minkowski_distance','braycurtis_distance','skew_q1vec','skew_q2vec',
   'kur_q1vec','kur_q2vec']
 
-# read pre-calculated features
-train_df = pd.read_csv('../input/train_features.csv', encoding = "ISO-8859-1")
-test_df = pd.read_csv('../input/test_features.csv', encoding = "ISO-8859-1")
+# calculate frequencies
+df1 = train[['question1']].copy()
+df2 = train[['question2']].copy()
+df1_test = test[['question1']].copy()
+df2_test = test[['question2']].copy()
+
+df2.rename(columns = {'question2':'question1'},inplace=True)
+df2_test.rename(columns = {'question2':'question1'},inplace=True)
+
+train_questions = df1.append(df2)
+train_questions = train_questions.append(df1_test)
+train_questions = train_questions.append(df2_test)
+train_questions.drop_duplicates(subset = ['question1'],inplace=True)
+
+train_questions.reset_index(inplace=True,drop=True)
+questions_dict = pd.Series(train_questions.index.values,index=train_questions.question1.values).to_dict()
+train_cp = train.copy()
+test_cp = test.copy()
+train_cp.drop(['qid1','qid2'],axis=1,inplace=True)
+
+test_cp['is_duplicate'] = -1
+test_cp.rename(columns={'test_id':'id'},inplace=True)
+comb = pd.concat([train_cp,test_cp])
+
+comb['q1_hash'] = comb['question1'].map(questions_dict)
+comb['q2_hash'] = comb['question2'].map(questions_dict)
+
+q1_vc = comb.q1_hash.value_counts().to_dict()
+q2_vc = comb.q2_hash.value_counts().to_dict()
+
+#map to frequency space
+comb['q1_freq'] = comb['q1_hash'].map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
+comb['q2_freq'] = comb['q2_hash'].map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
+
+train_comb = comb[comb['is_duplicate'] >= 0][['id','q1_hash','q2_hash','q1_freq','q2_freq','is_duplicate']]
+test_comb = comb[comb['is_duplicate'] < 0][['id','q1_hash','q2_hash','q1_freq','q2_freq']]
+
+# merge with frequency features
+train_df = pd.concat([train_df,train_comb],axis=1)
+test_df = pd.concat([test_df,test_comb],axis=1)
+freq_features = ['q1_freq','q2_freq']
+
 y_train = train['is_duplicate'].values
 x_train = train_df
 
@@ -269,11 +320,15 @@ pipe = Pipeline([
         ('abhishek', Pipeline([
             ('get', PipeExtractor(fs1+fs2+fs4)),
             ('shape', PipeShape())
+        ])),
+        ('frequency', Pipeline([
+            ('get', PipeExtractor(freq_features)),
+            ('shape', PipeShape())
         ]))
     ])),
 ])
 
-mode = 'Train'
+mode = 'Val'
 
 if mode == 'Val':
   x_train, x_valid, y_train, y_valid =\
@@ -300,7 +355,7 @@ if mode == 'Val':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   preds, model = runLGB(x_train,y_train,x_valid,y_valid,
-            num_rounds=10000,max_depth=6,eta=0.1,scale_pos_weight=0.36)
+            num_rounds=10000,max_depth=-1,eta=0.1,scale_pos_weight=0.36)
 
 
 if mode == 'Train':
@@ -311,10 +366,10 @@ if mode == 'Train':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   predictions, model = runLGB(x_train,y_train,x_test,
-            num_rounds=3218,max_depth=6,eta=0.1,scale_pos_weight=0.36)
+            num_rounds=1051,max_depth=6,eta=0.1,scale_pos_weight=0.36)
   
   # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-  create_submission(0.319563,preds,model)
+  create_submission(0.24765,preds,model)
