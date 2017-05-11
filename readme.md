@@ -27,3 +27,4 @@
 * [1513] valid_0's binary_logloss: 0.248254 - removed canberra (REVERT)
 * [1315] valid_0's binary_logloss: 0.248025 - removed skew (REVERT)
 * [1213] valid_0's binary_logloss: 0.245081 / full training 0.327048 - added 'q1_freq_q1_ratio','q2_freq_q1_ratio' (KEEP, BEST CV, BEST LB of 0.22209)
+* [1105] valid_0's binary_logloss: 0.240065 / full training 0.318505 - added collins duffy features (KEEP)

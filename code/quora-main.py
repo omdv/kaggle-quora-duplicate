@@ -223,14 +223,25 @@ comb = comb[fields]
 train_freq = comb[comb['is_duplicate'] >= 0]
 test_freq = comb[comb['is_duplicate'] < 0]
 
-# train_comb = comb[comb['is_duplicate'] >= 0][['id','q1_hash','q2_hash','q1_freq','q2_freq','is_duplicate','q1_freq_q1_ratio','q2_freq_q1_ratio']]
-# test_comb = comb[comb['is_duplicate'] < 0][['id','q1_hash','q2_hash','q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']]
+freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']
+
+# Collins Duffy features
+# https://www.kaggle.com/c/quora-question-pairs/discussion/32334
+train_duffy = pd.read_csv('../input/duffy_train.csv')
+test_duffy = pd.read_csv('../input/duffy_test.csv')
+
+duffy_features = ['sd_1e-1_sst','sd_1e-1_st','sd_1e-2_sst','sd_1e-2_st',\
+'sd_1e0_sst','sd_1e0_st','sd_2e-1_sst','sd_2e-1_st','sd_5e-1_sst',\
+'sd_5e-1_st','sd_5e-2_sst','sd_5e-2_st','sd_8e-1_sst','sd_8e-1_st']
 
 # merge all
 train_df = pd.concat([train_df,train_freq],axis=1)
 test_df = pd.concat([test_df,test_freq],axis=1)
-freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']
 
+train_df = pd.merge(train_df,train_duffy,on='id',how='left')
+test_df = pd.merge(test_df,test_duffy,on='id',how='left')
+
+# split back
 y_train = train['is_duplicate'].values
 x_train = train_df
 
@@ -257,6 +268,10 @@ pipe = Pipeline([
         ])),
         ('frequency', Pipeline([
             ('get', PipeExtractor(freq_features)),
+            ('shape', PipeShape())
+        ])),
+        ('collins_duffy', Pipeline([
+            ('get', PipeExtractor(duffy_features)),
             ('shape', PipeShape())
         ]))
     ])),
@@ -300,10 +315,10 @@ if mode == 'Train':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   predictions, model = runLGB(x_train,y_train,x_test,
-            num_rounds=1213,max_depth=6,eta=0.02,scale_pos_weight=0.36)
+            num_rounds=1105,max_depth=6,eta=0.02,scale_pos_weight=0.36)
   
   # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-  create_submission(0.245081,preds,model)
+  create_submission(0.240065,preds,model)
