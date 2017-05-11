@@ -9,7 +9,7 @@
 * [4142] valid_0's binary_logloss: 0.420082 * 0.784 (to scale to mean of public LB) (LB of 0.35789)
 * [4142] valid_0's binary_logloss: 0.420082 - lightgbm (eta=0.1,d=6) with scale_pos_weight=0.36 (LB of 0.35010)
 * [3218] valid_0's binary_logloss: 0.319563 / full training 0.369362 - new CV strategy, deleting pos examples to match set distribution and using scale_pos_weight (LB 0.34867)
-* [1051] valid_0's binary_logloss: 0.24765 / full training 0.339638 - added freq_features (BEST LB of 0.22529)
+* [1051] valid_0's binary_logloss: 0.24765 / full training 0.339638 - added freq_features (LB of 0.22529)
 * [1223] valid_0's binary_logloss: 0.248323 - added log1p of len_diff and len_ratio (REVERT)
 * [955]	valid_0's binary_logloss: 0.248595 - removed ratio and abs_diff and kept log1p (REVERT)
 * [1051] valid_0's binary_logloss: 0.24765 - no change with eta=0.05 and max_d=-1
@@ -26,3 +26,4 @@
 * [1282] valid_0's binary_logloss: 0.248106 - removed minkowski (REVERT)
 * [1513] valid_0's binary_logloss: 0.248254 - removed canberra (REVERT)
 * [1315] valid_0's binary_logloss: 0.248025 - removed skew (REVERT)
+* [1213] valid_0's binary_logloss: 0.245081 / full training 0.327048 - added 'q1_freq_q1_ratio','q2_freq_q1_ratio' (KEEP, BEST CV, BEST LB of 0.22209)

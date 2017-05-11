@@ -168,6 +168,8 @@ fs4 = ['wmd','norm_wmd',
 # rejected features
 fs5 = ['braycurtis_distance']
 
+# TF-IDF features
+
 train_df = data[data['is_train'].notnull()]
 test_df = data[data['is_train'].isnull()]
 
@@ -202,16 +204,32 @@ q1_vc = comb.q1_hash.value_counts().to_dict()
 q2_vc = comb.q2_hash.value_counts().to_dict()
 
 #map to frequency space
-comb['q1_freq'] = comb['q1_hash'].map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
-comb['q2_freq'] = comb['q2_hash'].map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
+comb['q1_freq'] = comb['q1_hash'].\
+  map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
+comb['q2_freq'] = comb['q2_hash'].\
+  map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
 
-train_comb = comb[comb['is_duplicate'] >= 0][['id','q1_hash','q2_hash','q1_freq','q2_freq','is_duplicate']]
-test_comb = comb[comb['is_duplicate'] < 0][['id','q1_hash','q2_hash','q1_freq','q2_freq']]
+comb['q1_freq_q1_ratio'] = comb['q1_hash'].\
+  map(lambda x: try_apply_dict(x,q1_vc))
+comb['q2_freq_q1_ratio'] = comb['q2_hash'].\
+  map(lambda x: try_apply_dict(x,q1_vc))
+
+comb['q1_freq_q1_ratio'] = comb['q1_freq_q1_ratio']/comb['q1_freq'].apply(lambda x: x if x > 0.0 else 1.0)
+comb['q2_freq_q1_ratio'] = comb['q2_freq_q1_ratio']/comb['q2_freq'].apply(lambda x: x if x > 0.0 else 1.0)
+
+fields = ['id','q1_hash','q2_hash','q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio','is_duplicate']
+comb = comb[fields]
+
+train_freq = comb[comb['is_duplicate'] >= 0]
+test_freq = comb[comb['is_duplicate'] < 0]
+
+# train_comb = comb[comb['is_duplicate'] >= 0][['id','q1_hash','q2_hash','q1_freq','q2_freq','is_duplicate','q1_freq_q1_ratio','q2_freq_q1_ratio']]
+# test_comb = comb[comb['is_duplicate'] < 0][['id','q1_hash','q2_hash','q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']]
 
 # merge all
-train_df = pd.concat([train_df,train_comb],axis=1)
-test_df = pd.concat([test_df,test_comb],axis=1)
-freq_features = ['q1_freq','q2_freq']
+train_df = pd.concat([train_df,train_freq],axis=1)
+test_df = pd.concat([test_df,test_freq],axis=1)
+freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']
 
 y_train = train['is_duplicate'].values
 x_train = train_df
@@ -282,10 +300,10 @@ if mode == 'Train':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   predictions, model = runLGB(x_train,y_train,x_test,
-            num_rounds=1727,max_depth=6,eta=0.02,scale_pos_weight=0.36)
+            num_rounds=1213,max_depth=6,eta=0.02,scale_pos_weight=0.36)
   
   # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-  create_submission(0.247186,preds,model)
+  create_submission(0.245081,preds,model)
