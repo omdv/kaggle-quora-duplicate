@@ -37,6 +37,7 @@ test_df = pd.read_csv('../input/test_features.csv', encoding = "ISO-8859-1")
 
 train_df['is_train'] = 1
 data = pd.concat([train_df,test_df])
+data = data[['question1','question2','is_train']]
 
 # # Basic feature set - already calculated
 # data['len_q1'] = data.question1.apply(lambda x: len(str(x)))
@@ -94,37 +95,37 @@ question2_vectors  = np.zeros((data.shape[0], 300))
 for i, q in tqdm(enumerate(data.question2.values)):
     question2_vectors[i, :] = sent2vec(q,model)
 
-data['cosine_distance_chk'] = [cosine(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-# data['cityblock_distance_chk'] = [cityblock(x, y) for (x, y) in\
+# data['cosine_distance'] = [cosine(x, y) for (x, y) in\
 #   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-# data['jaccard_distance_chk'] = [jaccard(x, y) for (x, y) in\
+# data['cityblock_distance'] = [cityblock(x, y) for (x, y) in\
 #   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-# data['canberra_distance_chk'] = [canberra(x, y) for (x, y) in\
+# data['jaccard_distance'] = [jaccard(x, y) for (x, y) in\
 #   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-# data['euclidean_distance_chk'] = [euclidean(x, y) for (x, y) in\
+# data['canberra_distance'] = [canberra(x, y) for (x, y) in\
 #   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-# data['minkowski_distance_chk'] = [minkowski(x, y, 3) for (x, y) in\
+# data['euclidean_distance'] = [euclidean(x, y) for (x, y) in\
 #   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-# data['braycurtis_distance_chk'] = [braycurtis(x, y) for (x, y) in\
+# data['minkowski_distance'] = [minkowski(x, y, 3) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['braycurtis_distance'] = [braycurtis(x, y) for (x, y) in\
 #   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
 
-data['chebyshev_distance'] = [chebyshev(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['correlation_distance'] = [correlation(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['sqeuclidean_distance'] = [sqeuclidean(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['hamming_distance'] = [hamming(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['kulsinski_distance'] = [kulsinski(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['matching_distance'] = [matching(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['rogerstanimoto_distance'] = [rogerstanimoto(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
-data['russellrao_distance'] = [russellrao(x, y) for (x, y) in\
-  zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['chebyshev_distance'] = [chebyshev(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['correlation_distance'] = [correlation(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['sqeuclidean_distance'] = [sqeuclidean(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['hamming_distance'] = [hamming(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['kulsinski_distance'] = [kulsinski(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['matching_distance'] = [matching(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['rogerstanimoto_distance'] = [rogerstanimoto(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
+# data['russellrao_distance'] = [russellrao(x, y) for (x, y) in\
+#   zip(np.nan_to_num(question1_vectors),np.nan_to_num(question2_vectors))]
 
 # data['skew_q1vec'] = [skew(x) for x in np.nan_to_num(question1_vectors)]
 # data['skew_q2vec'] = [skew(x) for x in np.nan_to_num(question2_vectors)]
@@ -136,5 +137,5 @@ fs4 = ['wmd','norm_wmd','cosine_distance','cityblock_distance',\
   'minkowski_distance','braycurtis_distance','skew_q1vec','skew_q2vec',
   'kur_q1vec','kur_q2vec']
 
-train_df = data[data['is_train'].notnull()]
-test_df = data[data['is_train'].isnull()]
+# train_df = data[data['is_train'].notnull()]
+# test_df = data[data['is_train'].isnull()]

@@ -5,6 +5,7 @@ import pickle
 import datetime
 import xgboost as xgb
 import lightgbm as lgb
+import tables
 from fuzzywuzzy import fuzz
 from nltk import word_tokenize
 from nltk.corpus import stopwords
@@ -168,11 +169,15 @@ fs4 = ['wmd','norm_wmd',
 # rejected features
 fs5 = ['braycurtis_distance']
 
-# TF-IDF features
+# convert float64 to float32
+data[fs1+fs2+fs4] = data[fs1+fs2+fs4].astype(np.float32)
 
+# split back
 train_df = data[data['is_train'].notnull()]
 test_df = data[data['is_train'].isnull()]
+data = 0
 
+# -----------------------------------------------
 # calculate frequencies
 df1 = train[['question1']].copy()
 df2 = train[['question2']].copy()
@@ -188,7 +193,8 @@ train_questions = train_questions.append(df2_test)
 train_questions.drop_duplicates(subset = ['question1'],inplace=True)
 
 train_questions.reset_index(inplace=True,drop=True)
-questions_dict = pd.Series(train_questions.index.values,index=train_questions.question1.values).to_dict()
+questions_dict = pd.Series(train_questions.index.values,index=\
+  train_questions.question1.values).to_dict()
 train_cp = train.copy()
 test_cp = test.copy()
 train_cp.drop(['qid1','qid2'],axis=1,inplace=True)
@@ -214,10 +220,13 @@ comb['q1_freq_q1_ratio'] = comb['q1_hash'].\
 comb['q2_freq_q1_ratio'] = comb['q2_hash'].\
   map(lambda x: try_apply_dict(x,q1_vc))
 
-comb['q1_freq_q1_ratio'] = comb['q1_freq_q1_ratio']/comb['q1_freq'].apply(lambda x: x if x > 0.0 else 1.0)
-comb['q2_freq_q1_ratio'] = comb['q2_freq_q1_ratio']/comb['q2_freq'].apply(lambda x: x if x > 0.0 else 1.0)
+comb['q1_freq_q1_ratio'] = comb['q1_freq_q1_ratio']/\
+  comb['q1_freq'].apply(lambda x: x if x > 0.0 else 1.0)
+comb['q2_freq_q1_ratio'] = comb['q2_freq_q1_ratio']/\
+  comb['q2_freq'].apply(lambda x: x if x > 0.0 else 1.0)
 
-fields = ['id','q1_hash','q2_hash','q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio','is_duplicate']
+fields = ['id','q1_hash','q2_hash','q1_freq','q2_freq',\
+  'q1_freq_q1_ratio','q2_freq_q1_ratio','is_duplicate']
 comb = comb[fields]
 
 train_freq = comb[comb['is_duplicate'] >= 0]
@@ -225,6 +234,7 @@ test_freq = comb[comb['is_duplicate'] < 0]
 
 freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']
 
+# -----------------------------------------------
 # Collins Duffy features
 # https://www.kaggle.com/c/quora-question-pairs/discussion/32334
 train_duffy = pd.read_csv('../input/duffy_train.csv')
@@ -234,31 +244,64 @@ duffy_features = ['sd_1e-1_sst','sd_1e-1_st','sd_1e-2_sst','sd_1e-2_st',\
 'sd_1e0_sst','sd_1e0_st','sd_2e-1_sst','sd_2e-1_st','sd_5e-1_sst',\
 'sd_5e-1_st','sd_5e-2_sst','sd_5e-2_st','sd_8e-1_sst','sd_8e-1_st']
 
+train_duffy[duffy_features] = train_duffy[duffy_features].astype(np.float32)
+test_duffy[duffy_features] = test_duffy[duffy_features].astype(np.float32)
+
+# -----------------------------------------------
+# Word2Vector vectors for q1 and q2
+h5 = tables.open_file('../input/w2v.h5',mode='r')
+q1_train = pd.DataFrame(np.array(h5.root.q1_train[:]).astype(np.float32))
+q2_train = pd.DataFrame(np.array(h5.root.q2_train[:]).astype(np.float32))
+q1_test = pd.DataFrame(np.array(h5.root.q1_test[:]).astype(np.float32))
+q2_test = pd.DataFrame(np.array(h5.root.q2_test[:]).astype(np.float32))
+h5.close()
+q1_train.columns = ['q1_'+str(x) for x in q1_train.columns]
+q2_train.columns = ['q2_'+str(x) for x in q2_train.columns]
+q1_test.columns = ['q1_'+str(x) for x in q1_test.columns]
+q2_test.columns = ['q2_'+str(x) for x in q2_test.columns]
+
+w2v_features = np.append(q1_train.columns.values,q2_train.columns.values)
+
 # merge all
 train_df = pd.concat([train_df,train_freq],axis=1)
 test_df = pd.concat([test_df,test_freq],axis=1)
 
+train_freq = 0
+test_freq = 0
+
 train_df = pd.merge(train_df,train_duffy,on='id',how='left')
 test_df = pd.merge(test_df,test_duffy,on='id',how='left')
+
+train_duffy = 0
+test_duffy = 0
+
+train_df = pd.concat([train_df,q1_train,q2_train],axis=1)
+test_df = pd.concat([test_df,q1_test,q2_test],axis=1)
+
+q1_train = 0
+q2_train = 0
+q1_test = 0
+q2_test = 0
 
 # split back
 y_train = train['is_duplicate'].values
 x_train = train_df
 
-# Oversample to compensate for a different distribution in test set
-oversample = 0
-if oversample:
-  pos_train = train_df[y_train == 1]
-  neg_train = train_df[y_train == 0]
-  p = 0.174
-  scale = ((len(pos_train) / (len(pos_train) + len(neg_train))) / p) - 1
-  while scale > 1:
-      neg_train = pd.concat([neg_train, neg_train])
-      scale -=1
-  neg_train = pd.concat([neg_train, neg_train[:int(scale * len(neg_train))]])
-  x_train = pd.concat([pos_train, neg_train])
-  y_train = (np.zeros(len(pos_train)) + 1).tolist() + np.zeros(len(neg_train)).tolist()
-  del pos_train, neg_train
+# # Oversample to compensate for a different distribution in test set
+# oversample = 0
+# if oversample:
+#   pos_train = train_df[y_train == 1]
+#   neg_train = train_df[y_train == 0]
+#   p = 0.174
+#   scale = ((len(pos_train) / (len(pos_train) + len(neg_train))) / p) - 1
+#   while scale > 1:
+#       neg_train = pd.concat([neg_train, neg_train])
+#       scale -=1
+#   neg_train = pd.concat([neg_train, neg_train[:int(scale * len(neg_train))]])
+#   x_train = pd.concat([pos_train, neg_train])
+#   y_train = (np.zeros(len(pos_train)) + 1).tolist() +\
+#  np.zeros(len(neg_train)).tolist()
+#   del pos_train, neg_train
 
 pipe = Pipeline([
     ('features', FeatureUnion([
@@ -272,6 +315,10 @@ pipe = Pipeline([
         ])),
         ('collins_duffy', Pipeline([
             ('get', PipeExtractor(duffy_features)),
+            ('shape', PipeShape())
+        ])),
+        ('w2v', Pipeline([
+            ('get', PipeExtractor(w2v_features)),
             ('shape', PipeShape())
         ]))
     ])),
@@ -315,10 +362,10 @@ if mode == 'Train':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   predictions, model = runLGB(x_train,y_train,x_test,
-            num_rounds=1105,max_depth=6,eta=0.02,scale_pos_weight=0.36)
+            num_rounds=2215,max_depth=6,eta=0.02,scale_pos_weight=0.36)
   
   # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-  create_submission(0.240065,preds,model)
+  create_submission(0.220256,preds,model)
