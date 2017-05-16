@@ -11,8 +11,8 @@ import pandas as pd
 
 # Averaging with other scripts
 files = [\
-	"../output/submit_0.2472_2017-05-09-2108.csv",
-	"../output/submit_0.2477_2017-05-07-2149.csv",
+	"../output/submit_0.2062_2017-05-15-2015.csv",
+	"../output/submit_0.2203_2017-05-13-0858.csv",
 	]
 weights = np.ones(len(files))/len(files)
 
@@ -36,4 +36,4 @@ res["test_id"] = data[0]["test_id"]
 res = pd.DataFrame(res)
 
 res["test_id"]=res["test_id"].astype("int")
-res.to_csv("../output/submit_average_05092017.csv", index=False)
+res.to_csv("../output/submit_average_05152017.csv", index=False)

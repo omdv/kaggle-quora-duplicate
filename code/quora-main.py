@@ -21,6 +21,14 @@ from lightgbm import LGBMClassifier
 np.random.seed(42)
 stop_words = stopwords.words('english')
 
+def convert_to_32(df):
+  for i in dict(df.dtypes):
+    if df.dtypes[i] == 'float64':
+      df.loc[:,i] = df[i].astype(np.float32)
+    if df.dtypes[i] == 'int64':
+      df.loc[:,i] = df[i].astype(np.int32)
+  return df
+
 def try_apply_dict(x,dict_to_apply):
     try:
         return dict_to_apply[x]
@@ -140,16 +148,21 @@ test = pd.read_csv('../input/test.csv')
 # read pre-calculated Abshishek features
 train_df = pd.read_csv('../input/train_features.csv', encoding = "ISO-8859-1")
 test_df = pd.read_csv('../input/test_features.csv', encoding = "ISO-8859-1")
-train_df['is_train'] = 1
+train_df.loc[:,'is_train'] = 1
 data = pd.concat([train_df,test_df])
+
+data = convert_to_32(data)
 
 # data['log_diff_len'] = np.log1p(data['diff_len'])
 # data['ratio_len'] = data['len_q1'].apply(lambda x: x if x > 0.0 else 1.0)/\
 #   data['len_q2'].apply(lambda x: x if x > 0.0 else 1.0)
 # data['log_ratio_len'] = np.log1p(data['ratio_len'])
 
+data['diff_len_char'] = data['len_char_q1']-data['len_char_q2']
+data['diff_len_word'] = data['len_word_q1']-data['len_word_q2']
+
 fs1 = ['len_q1','len_q2','diff_len','len_char_q1','len_char_q2','len_word_q1',\
-  'len_word_q2','common_words']
+  'len_word_q2','common_words','diff_len_char','diff_len_word']
 
 fs2 = ['fuzz_qratio','fuzz_WRatio','fuzz_partial_ratio',\
 'fuzz_partial_token_set_ratio','fuzz_partial_token_sort_ratio',\
@@ -169,9 +182,6 @@ fs4 = ['wmd','norm_wmd',
 # rejected features
 fs5 = ['braycurtis_distance']
 
-# convert float64 to float32
-data[fs1+fs2+fs4] = data[fs1+fs2+fs4].astype(np.float32)
-
 # split back
 train_df = data[data['is_train'].notnull()]
 test_df = data[data['is_train'].isnull()]
@@ -190,6 +200,12 @@ df2_test.rename(columns = {'question2':'question1'},inplace=True)
 train_questions = df1.append(df2)
 train_questions = train_questions.append(df1_test)
 train_questions = train_questions.append(df2_test)
+
+# train_qs = pd.Series(train['question1'].tolist() +\
+#   train['question2'].tolist()).astype(str)
+# test_qs = pd.Series(test['question1'].tolist() +\
+#   test['question2'].tolist()).astype(str)
+
 train_questions.drop_duplicates(subset = ['question1'],inplace=True)
 
 train_questions.reset_index(inplace=True,drop=True)
@@ -232,7 +248,21 @@ comb = comb[fields]
 train_freq = comb[comb['is_duplicate'] >= 0]
 test_freq = comb[comb['is_duplicate'] < 0]
 
+train_freq = convert_to_32(train_freq)
+test_freq = convert_to_32(test_freq)
+
 freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']
+
+# -----------------------------------------------
+# XGBoost start features
+train_starter = pd.read_csv('../input/starter_train_01.csv')
+test_starter = pd.read_csv('../input/starter_test_01.csv')
+
+starter_features = ['shared_2gram','cosine','tfidf_word_match','word_match',\
+  'words_hamming','avg_world_len1','avg_world_len2','stops1_ratio','stops2_ratio']
+
+train_starter = convert_to_32(train_starter)
+test_starter = convert_to_32(test_starter)
 
 # -----------------------------------------------
 # Collins Duffy features
@@ -244,8 +274,8 @@ duffy_features = ['sd_1e-1_sst','sd_1e-1_st','sd_1e-2_sst','sd_1e-2_st',\
 'sd_1e0_sst','sd_1e0_st','sd_2e-1_sst','sd_2e-1_st','sd_5e-1_sst',\
 'sd_5e-1_st','sd_5e-2_sst','sd_5e-2_st','sd_8e-1_sst','sd_8e-1_st']
 
-train_duffy[duffy_features] = train_duffy[duffy_features].astype(np.float32)
-test_duffy[duffy_features] = test_duffy[duffy_features].astype(np.float32)
+train_duffy = convert_to_32(train_duffy)
+test_duffy = convert_to_32(test_duffy)
 
 # -----------------------------------------------
 # Word2Vector vectors for q1 and q2
@@ -262,6 +292,7 @@ q2_test.columns = ['q2_'+str(x) for x in q2_test.columns]
 
 w2v_features = np.append(q1_train.columns.values,q2_train.columns.values)
 
+# -----------------------------------------------
 # merge all
 train_df = pd.concat([train_df,train_freq],axis=1)
 test_df = pd.concat([test_df,test_freq],axis=1)
@@ -283,25 +314,12 @@ q2_train = 0
 q1_test = 0
 q2_test = 0
 
+train_df = pd.concat([train_df,train_starter],axis=1)
+test_df = pd.concat([test_df,test_starter],axis=1)
+
 # split back
 y_train = train['is_duplicate'].values
 x_train = train_df
-
-# # Oversample to compensate for a different distribution in test set
-# oversample = 0
-# if oversample:
-#   pos_train = train_df[y_train == 1]
-#   neg_train = train_df[y_train == 0]
-#   p = 0.174
-#   scale = ((len(pos_train) / (len(pos_train) + len(neg_train))) / p) - 1
-#   while scale > 1:
-#       neg_train = pd.concat([neg_train, neg_train])
-#       scale -=1
-#   neg_train = pd.concat([neg_train, neg_train[:int(scale * len(neg_train))]])
-#   x_train = pd.concat([pos_train, neg_train])
-#   y_train = (np.zeros(len(pos_train)) + 1).tolist() +\
-#  np.zeros(len(neg_train)).tolist()
-#   del pos_train, neg_train
 
 pipe = Pipeline([
     ('features', FeatureUnion([
@@ -315,6 +333,10 @@ pipe = Pipeline([
         ])),
         ('collins_duffy', Pipeline([
             ('get', PipeExtractor(duffy_features)),
+            ('shape', PipeShape())
+        ])),
+        ('starter', Pipeline([
+            ('get', PipeExtractor(starter_features)),
             ('shape', PipeShape())
         ])),
         ('w2v', Pipeline([
@@ -362,10 +384,10 @@ if mode == 'Train':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   predictions, model = runLGB(x_train,y_train,x_test,
-            num_rounds=2215,max_depth=6,eta=0.02,scale_pos_weight=0.36)
+            num_rounds=2717,max_depth=6,eta=0.02,scale_pos_weight=0.36)
   
   # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-  create_submission(0.220256,preds,model)
+  create_submission(0.206177,preds,model)
