@@ -33,3 +33,7 @@
 * [1627] valid_0's binary_logloss: 0.239735 - added 'diff_len_char','diff_len_word' (KEEP)
 * [1288] valid_0's binary_logloss: 0.22262 - added top 9 starter features (KEEP)
 * [2717] valid_0's binary_logloss: 0.206177 / full training 0.130557 - as above with 300 word2vec (BEST CV, BEST LB of 0.20106, LB for average of 0.19893)
+* [1374] valid_0's binary_logloss: 0.227318 - added 3 gram and fixed word_hamming (REMOVE)
+* [1110] valid_0's binary_logloss: 0.222018 - added countries as locations (REMOVE)
+* [760]	valid_0's binary_logloss: 0.176538 - added magic feature #2 - featureq1_q2_intersect (KEEP, BEST CV)
+* [1265] valid_0's binary_logloss: 0.170199 / full training 0.159356 - magic #2 with word2vec (BEST CV, BEST LB 0.15505)

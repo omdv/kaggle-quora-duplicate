@@ -6,6 +6,7 @@ import datetime
 import xgboost as xgb
 import lightgbm as lgb
 import tables
+from collections import Counter
 from fuzzywuzzy import fuzz
 from nltk import word_tokenize
 from nltk.corpus import stopwords
@@ -46,10 +47,10 @@ class PipeShape(BaseEstimator, TransformerMixin):
 class PipeExtractor(BaseEstimator, TransformerMixin):
     def __init__(self, fields):
         self.fields = fields
-        
+
     def fit(self, X,y):
         return self
-        
+
     def transform(self, X):
         return X[self.fields]
 
@@ -58,15 +59,15 @@ def create_submission(score, pred, model):
     Saving model, features and submission
     """
     ouDir = '../output/'
-    
+
     now = datetime.datetime.now()
     scrstr = "{:0.4f}_{}".format(score,now.strftime("%Y-%m-%d-%H%M"))
-    
+
     mod_file = ouDir + 'model_' + scrstr + '.model'
     if model:
         print('Writing model: ', mod_file)
         pickle.dump(model,open(mod_file,'wb'))
-    
+
     sub_file = ouDir + 'submit_' + scrstr + '.csv'
     print('Writing submission: ', sub_file)
     pred.to_csv(sub_file, index=False)
@@ -165,8 +166,8 @@ fs1 = ['len_q1','len_q2','diff_len','len_char_q1','len_char_q2','len_word_q1',\
   'len_word_q2','common_words','diff_len_char','diff_len_word']
 
 fs2 = ['fuzz_qratio','fuzz_WRatio','fuzz_partial_ratio',\
-'fuzz_partial_token_set_ratio','fuzz_partial_token_sort_ratio',\
-'fuzz_token_set_ratio','fuzz_token_sort_ratio']
+  'fuzz_partial_token_set_ratio','fuzz_partial_token_sort_ratio',\
+  'fuzz_token_set_ratio','fuzz_token_sort_ratio']
 
 fs4 = ['wmd','norm_wmd',
   'cosine_distance',
@@ -187,71 +188,70 @@ train_df = data[data['is_train'].notnull()]
 test_df = data[data['is_train'].isnull()]
 data = 0
 
-# -----------------------------------------------
-# calculate frequencies
-df1 = train[['question1']].copy()
-df2 = train[['question2']].copy()
-df1_test = test[['question1']].copy()
-df2_test = test[['question2']].copy()
+# # -----------------------------------------------
+# # calculate frequencies
+# df1 = train[['question1']].copy()
+# df2 = train[['question2']].copy()
+# df1_test = test[['question1']].copy()
+# df2_test = test[['question2']].copy()
 
-df2.rename(columns = {'question2':'question1'},inplace=True)
-df2_test.rename(columns = {'question2':'question1'},inplace=True)
+# df2.rename(columns = {'question2':'question1'},inplace=True)
+# df2_test.rename(columns = {'question2':'question1'},inplace=True)
 
-train_questions = df1.append(df2)
-train_questions = train_questions.append(df1_test)
-train_questions = train_questions.append(df2_test)
+# train_questions = df1.append(df2)
+# train_questions = train_questions.append(df1_test)
+# train_questions = train_questions.append(df2_test)
 
-# train_qs = pd.Series(train['question1'].tolist() +\
-#   train['question2'].tolist()).astype(str)
-# test_qs = pd.Series(test['question1'].tolist() +\
-#   test['question2'].tolist()).astype(str)
+# train_questions.drop_duplicates(subset = ['question1'],inplace=True)
 
-train_questions.drop_duplicates(subset = ['question1'],inplace=True)
+# train_questions.reset_index(inplace=True,drop=True)
+# questions_dict = pd.Series(train_questions.index.values,index=\
+#  train_questions.question1.values).to_dict()
+# train_cp = train.copy()
+# test_cp = test.copy()
+# train_cp.drop(['qid1','qid2'],axis=1,inplace=True)
 
-train_questions.reset_index(inplace=True,drop=True)
-questions_dict = pd.Series(train_questions.index.values,index=\
-  train_questions.question1.values).to_dict()
-train_cp = train.copy()
-test_cp = test.copy()
-train_cp.drop(['qid1','qid2'],axis=1,inplace=True)
+# test_cp['is_duplicate'] = -1
+# test_cp.rename(columns={'test_id':'id'},inplace=True)
+# comb = pd.concat([train_cp,test_cp])
 
-test_cp['is_duplicate'] = -1
-test_cp.rename(columns={'test_id':'id'},inplace=True)
-comb = pd.concat([train_cp,test_cp])
+# comb['q1_hash'] = comb['question1'].map(questions_dict)
+# comb['q2_hash'] = comb['question2'].map(questions_dict)
 
-comb['q1_hash'] = comb['question1'].map(questions_dict)
-comb['q2_hash'] = comb['question2'].map(questions_dict)
+# q1_vc = comb.q1_hash.value_counts().to_dict()
+# q2_vc = comb.q2_hash.value_counts().to_dict()
 
-q1_vc = comb.q1_hash.value_counts().to_dict()
-q2_vc = comb.q2_hash.value_counts().to_dict()
+# #map to frequency space
+# comb['q1_freq'] = comb['q1_hash'].\
+#  map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
+# comb['q2_freq'] = comb['q2_hash'].\
+#  map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
 
-#map to frequency space
-comb['q1_freq'] = comb['q1_hash'].\
-  map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
-comb['q2_freq'] = comb['q2_hash'].\
-  map(lambda x: try_apply_dict(x,q1_vc) + try_apply_dict(x,q2_vc))
+# comb['q1_freq_q1_ratio'] = comb['q1_hash'].\
+#  map(lambda x: try_apply_dict(x,q1_vc))
+# comb['q2_freq_q1_ratio'] = comb['q2_hash'].\
+#  map(lambda x: try_apply_dict(x,q1_vc))
 
-comb['q1_freq_q1_ratio'] = comb['q1_hash'].\
-  map(lambda x: try_apply_dict(x,q1_vc))
-comb['q2_freq_q1_ratio'] = comb['q2_hash'].\
-  map(lambda x: try_apply_dict(x,q1_vc))
+# comb['q1_freq_q1_ratio'] = comb['q1_freq_q1_ratio']/\
+#  comb['q1_freq'].apply(lambda x: x if x > 0.0 else 1.0)
+# comb['q2_freq_q1_ratio'] = comb['q2_freq_q1_ratio']/\
+#  comb['q2_freq'].apply(lambda x: x if x > 0.0 else 1.0)
 
-comb['q1_freq_q1_ratio'] = comb['q1_freq_q1_ratio']/\
-  comb['q1_freq'].apply(lambda x: x if x > 0.0 else 1.0)
-comb['q2_freq_q1_ratio'] = comb['q2_freq_q1_ratio']/\
-  comb['q2_freq'].apply(lambda x: x if x > 0.0 else 1.0)
+# fields = ['id','q1_hash','q2_hash','q1_freq','q2_freq',\
+#  'q1_freq_q1_ratio','q2_freq_q1_ratio','is_duplicate']
+# comb = comb[fields]
 
-fields = ['id','q1_hash','q2_hash','q1_freq','q2_freq',\
-  'q1_freq_q1_ratio','q2_freq_q1_ratio','is_duplicate']
-comb = comb[fields]
+# train_freq = comb[comb['is_duplicate'] >= 0]
+# test_freq = comb[comb['is_duplicate'] < 0]
 
-train_freq = comb[comb['is_duplicate'] >= 0]
-test_freq = comb[comb['is_duplicate'] < 0]
+train_freq = pd.read_csv('../input/frequency_train.csv')
+test_freq = pd.read_csv('../input/frequency_test.csv')
 
 train_freq = convert_to_32(train_freq)
 test_freq = convert_to_32(test_freq)
 
-freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio']
+freq_features = ['q1_freq','q2_freq','q1_freq_q1_ratio','q2_freq_q1_ratio',\
+    'q1_q2_intersect']
 
 # -----------------------------------------------
 # XGBoost start features
@@ -271,8 +271,8 @@ train_duffy = pd.read_csv('../input/duffy_train.csv')
 test_duffy = pd.read_csv('../input/duffy_test.csv')
 
 duffy_features = ['sd_1e-1_sst','sd_1e-1_st','sd_1e-2_sst','sd_1e-2_st',\
-'sd_1e0_sst','sd_1e0_st','sd_2e-1_sst','sd_2e-1_st','sd_5e-1_sst',\
-'sd_5e-1_st','sd_5e-2_sst','sd_5e-2_st','sd_8e-1_sst','sd_8e-1_st']
+  'sd_1e0_sst','sd_1e0_st','sd_2e-1_sst','sd_2e-1_st','sd_5e-1_sst',\
+  'sd_5e-1_st','sd_5e-2_sst','sd_5e-2_st','sd_8e-1_sst','sd_8e-1_st']
 
 train_duffy = convert_to_32(train_duffy)
 test_duffy = convert_to_32(test_duffy)
@@ -289,8 +289,23 @@ q1_train.columns = ['q1_'+str(x) for x in q1_train.columns]
 q2_train.columns = ['q2_'+str(x) for x in q2_train.columns]
 q1_test.columns = ['q1_'+str(x) for x in q1_test.columns]
 q2_test.columns = ['q2_'+str(x) for x in q2_test.columns]
-
 w2v_features = np.append(q1_train.columns.values,q2_train.columns.values)
+
+
+# # -----------------------------------------------
+# # Explore other frequency features
+# def get_weight(count, eps=10000, min_count=2):
+#   return 0 if count < min_count else 1 / (count + eps)
+
+# all_qs = np.concatenate((train.question1.values,train.question2.values,\
+#   test.question1.values,test.question2.values))
+# all_qs = [str(i).lower() for i in all_qs]
+
+# qs_counts = Counter(all_qs)
+
+# words = (" ".join(train_qs)).lower().split()
+# word_counts = Counter(words)
+# word_weights = {word: get_weight(count) for word, count in word_counts.items()}
 
 # -----------------------------------------------
 # merge all
@@ -317,6 +332,9 @@ q2_test = 0
 train_df = pd.concat([train_df,train_starter],axis=1)
 test_df = pd.concat([test_df,test_starter],axis=1)
 
+train_starter = 0
+test_starter = 0
+
 # split back
 y_train = train['is_duplicate'].values
 x_train = train_df
@@ -324,24 +342,24 @@ x_train = train_df
 pipe = Pipeline([
     ('features', FeatureUnion([
         ('abhishek', Pipeline([
-            ('get', PipeExtractor(fs1+fs2+fs4)),
-            ('shape', PipeShape())
+          ('get', PipeExtractor(fs1+fs2+fs4)),
+          ('shape', PipeShape())
         ])),
         ('frequency', Pipeline([
-            ('get', PipeExtractor(freq_features)),
-            ('shape', PipeShape())
+          ('get', PipeExtractor(freq_features)),
+          ('shape', PipeShape())
         ])),
         ('collins_duffy', Pipeline([
-            ('get', PipeExtractor(duffy_features)),
-            ('shape', PipeShape())
+          ('get', PipeExtractor(duffy_features)),
+          ('shape', PipeShape())
         ])),
         ('starter', Pipeline([
-            ('get', PipeExtractor(starter_features)),
-            ('shape', PipeShape())
+          ('get', PipeExtractor(starter_features)),
+          ('shape', PipeShape())
         ])),
         ('w2v', Pipeline([
-            ('get', PipeExtractor(w2v_features)),
-            ('shape', PipeShape())
+          ('get', PipeExtractor(w2v_features)),
+          ('shape', PipeShape())
         ]))
     ])),
 ])
@@ -365,7 +383,7 @@ if mode == 'Val':
   y_valid = np.delete(y_valid, idx_to_drop)
   x_valid = x_valid.drop(x_valid.index[idx_to_drop])
 
-  # process pipelines  
+  # process pipelines
   x_train = pipe.fit_transform(x_train,y_train)
   x_valid = pipe.transform(x_valid)
 
@@ -375,7 +393,6 @@ if mode == 'Val':
   preds, model = runLGB(x_train,y_train,x_valid,y_valid,
             num_rounds=10000,max_depth=6,eta=0.02,scale_pos_weight=0.36)
 
-
 if mode == 'Train':
   x_train = pipe.fit_transform(x_train,y_train)
   x_test = pipe.transform(test_df)
@@ -384,10 +401,10 @@ if mode == 'Train':
   #           num_rounds=6000,max_depth=6,eta=0.1)
 
   predictions, model = runLGB(x_train,y_train,x_test,
-            num_rounds=2717,max_depth=6,eta=0.02,scale_pos_weight=0.36)
-  
+            num_rounds=1265,max_depth=6,eta=0.02,scale_pos_weight=0.36)
+
   # creating submission
   preds = pd.DataFrame()
   preds['test_id'] = test['test_id']
   preds['is_duplicate'] = predictions
-  create_submission(0.206177,preds,model)
+  create_submission(0.170199,preds,model)

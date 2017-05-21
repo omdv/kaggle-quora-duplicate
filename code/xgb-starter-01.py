@@ -54,23 +54,23 @@ params['seed'] = RS
 df_train = pd.read_csv(input_folder + 'train.csv')
 df_test  = pd.read_csv(input_folder + 'test.csv')
 	
-###
-#	df_train['question1'] = df_train['question1'].apply(lambda x:str(x).replace("?",""))
-#	df_train['question2'] = df_train['question2'].apply(lambda x:str(x).replace("?",""))
-#	df_test['question1'] = df_test['question1'].apply(lambda x:str(x).replace("?",""))
-#	df_test['question2'] = df_test['question2'].apply(lambda x:str(x).replace("?",""))
-###
-###	
-#	df_train['question1'] = df_train['question1'].apply(lambda x:str(x).replace(".",""))
-#	df_train['question2'] = df_train['question2'].apply(lambda x:str(x).replace(".",""))
-#	df_test['question1'] = df_test['question1'].apply(lambda x:str(x).replace(".",""))
-#	df_test['question2'] = df_test['question2'].apply(lambda x:str(x).replace(".",""))
+##
+df_train['question1'] = df_train['question1'].apply(lambda x:str(x).replace("?",""))
+df_train['question2'] = df_train['question2'].apply(lambda x:str(x).replace("?",""))
+df_test['question1'] = df_test['question1'].apply(lambda x:str(x).replace("?",""))
+df_test['question2'] = df_test['question2'].apply(lambda x:str(x).replace("?",""))
+##
+##	
+df_train['question1'] = df_train['question1'].apply(lambda x:str(x).replace(".",""))
+df_train['question2'] = df_train['question2'].apply(lambda x:str(x).replace(".",""))
+df_test['question1'] = df_test['question1'].apply(lambda x:str(x).replace(".",""))
+df_test['question2'] = df_test['question2'].apply(lambda x:str(x).replace(".",""))
 
-#	df_train['question1'] = df_train['question1'].apply(lambda x:str(x).replace(",",""))
-#	df_train['question2'] = df_train['question2'].apply(lambda x:str(x).replace(",",""))
-#	df_test['question1'] = df_test['question1'].apply(lambda x:str(x).replace(",",""))
-#	df_test['question2'] = df_test['question2'].apply(lambda x:str(x).replace(",",""))
-###
+df_train['question1'] = df_train['question1'].apply(lambda x:str(x).replace(",",""))
+df_train['question2'] = df_train['question2'].apply(lambda x:str(x).replace(",",""))
+df_test['question1'] = df_test['question1'].apply(lambda x:str(x).replace(",",""))
+df_test['question2'] = df_test['question2'].apply(lambda x:str(x).replace(",",""))
+##
 	
 print("Original data: X_train: {}, X_test: {}".format(df_train.shape, df_test.shape))
 
@@ -196,11 +196,12 @@ print("Features: {}".format(feature_names))
 x_train = x[:df_train.shape[0]]
 x_test  = x[df_train.shape[0]:]
 y_train = df_train['is_duplicate'].values
-# del x, df_train
+
+del x, df_train
 
 # output features
-x_train.to_csv('../input/starter_train_01.csv',index=False)
-x_test.to_csv('../input/starter_test_01.csv',index=False)
+x_train.to_csv('../input/starter_train_cleaned.csv',index=False)
+x_test.to_csv('../input/starter_test_cleaned.csv',index=False)
 
 # if 1: # Now we oversample the negative class - on your own risk of overfitting!
 # 	pos_train = x_train[y_train == 1]
@@ -219,9 +220,9 @@ x_test.to_csv('../input/starter_test_01.csv',index=False)
 # 	y_train = (np.zeros(len(pos_train)) + 1).tolist() + np.zeros(len(neg_train)).tolist()
 # 	del pos_train, neg_train
 
-# print("Training data: X_train: {}, Y_train: {}, X_test: {}".format(x_train.shape, len(y_train), x_test.shape))
-# clr = train_xgb(x_train, y_train, params)
-# preds = predict_xgb(clr, x_test)
+print("Training data: X_train: {}, Y_train: {}, X_test: {}".format(x_train.shape, len(y_train), x_test.shape))
+clr = train_xgb(x_train, y_train, params)
+preds = predict_xgb(clr, x_test)
 
 # print("Writing output...")
 # sub = pd.DataFrame()
@@ -229,10 +230,10 @@ x_test.to_csv('../input/starter_test_01.csv',index=False)
 # sub['is_duplicate'] = preds *.75
 # sub.to_csv("xgb_seed{}_n{}.csv".format(RS, ROUNDS), index=False)
 
-# print("Features importances...")
-# importance = clr.get_fscore(fmap='xgb.fmap')
-# importance = sorted(importance.items(), key=operator.itemgetter(1))
-# ft = pd.DataFrame(importance, columns=['feature', 'fscore'])
+print("Features importances...")
+importance = clr.get_fscore(fmap='xgb.fmap')
+importance = sorted(importance.items(), key=operator.itemgetter(1))
+ft = pd.DataFrame(importance, columns=['feature', 'fscore'])
 
-# ft.plot(kind='barh', x='feature', y='fscore', legend=False, figsize=(10, 25))
-# plt.gcf().savefig('features_importance.png')
+ft.plot(kind='barh', x='feature', y='fscore', legend=False, figsize=(10, 25))
+plt.gcf().savefig('features_importance.png')
