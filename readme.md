@@ -37,3 +37,9 @@
 * [1110] valid_0's binary_logloss: 0.222018 - added countries as locations (REMOVE)
 * [760]	valid_0's binary_logloss: 0.176538 - added magic feature #2 - featureq1_q2_intersect (KEEP, BEST CV)
 * [1265] valid_0's binary_logloss: 0.170199 / full training 0.159356 - magic #2 with word2vec (BEST CV, BEST LB 0.15505)
+* [840]	valid_0's binary_logloss: 0.175802 - added qid of test (KEEP)
+* [746]	valid_0's binary_logloss: 0.175691 - added qid difference (KEEP)
+* [1276] valid_0's binary_logloss: 0.170703 - with word2vec and qid features (REMOVE qid)
+* [755]	valid_0's binary_logloss: 0.17619 - no qid features after refactoring (REFERENCE)
+* [766]	valid_0's binary_logloss: 0.155857 / full training 0.208213 - categorical encoding on qids (BEST CV, LB 0.169) - need to fix CV
+* [548]	valid_0's binary_logloss: 0.156712 / full training 0.195772 - with word2vec and qid encoding (BEST CV, LB 0.165) - need to fix CV
