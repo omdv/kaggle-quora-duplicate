@@ -4,20 +4,16 @@ from tqdm import tqdm
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation, Dropout
 from keras.layers.embeddings import Embedding
-from keras.layers.recurrent import LSTM, GRU
+from keras.layers.recurrent import LSTM
 from keras.layers.normalization import BatchNormalization
 from keras.utils import np_utils
 from keras.layers import Merge
-from keras.layers import concatenate
 from keras.layers import TimeDistributed, Lambda
 from keras.layers import Convolution1D, GlobalMaxPooling1D
 from keras.callbacks import ModelCheckpoint
 from keras import backend as K
 from keras.layers.advanced_activations import PReLU
 from keras.preprocessing import sequence, text
-from sklearn.model_selection import StratifiedKFold
-
-kfold = StratifiedKFold(5)
 
 train = pd.read_csv('../input/train.csv')
 test = pd.read_csv('../input/test.csv')
@@ -31,6 +27,20 @@ tk.fit_on_texts(
     list(data.question1.values.astype(str)) +
     list(data.question2.values.astype(str)))
 data = 0
+
+# read folds
+fold = 5 
+tr_file = '../input/train_' + str(fold) + '.csv'
+cv_file = '../input/predict_' + str(fold) + '.csv'
+tr_idx = np.loadtxt(tr_file, delimiter=',')
+cv_idx = np.loadtxt(cv_file, delimiter=',')
+if fold:
+    print('Processing fold:',fold)
+    test = train.loc[cv_idx, :]
+    train = train.loc[tr_idx, :]
+    y = train.is_duplicate.values
+    result_file = '../output/predictions_fold_' + str(fold) + '.csv'
+    model_file = '../output/model_fold_' + str(fold) + '.csv'
 
 # train set
 x1 = tk.texts_to_sequences(train.question1.values.astype(str))
@@ -199,13 +209,12 @@ checkpoint = ModelCheckpoint(
     verbose=2)
 
 merged_model.fit(
-    [x1, x2, x1, x2, x1, x2], y=y, batch_size=256, nb_epoch=2,
+    [x1, x2, x1, x2, x1, x2], y=y, batch_size=256, nb_epoch=50,
     verbose=1, shuffle=True, callbacks=[checkpoint])
 
 result = merged_model.predict(
     [x1p, x2p, x1p, x2p, x1p, x2p], batch_size=256, verbose=1)
 test['predictions'] = result
 
-test[['test_id', 'predictions']].to_csv(
-    '../output/full_test_predictions.csv', index=False)
-merged_model.save('../output/full_test_model.h5')
+test[['id', 'predictions']].to_csv(result_file, index=False)
+merged_model.save(model_file)

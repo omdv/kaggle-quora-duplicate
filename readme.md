@@ -35,11 +35,20 @@
 * [2717] valid_0's binary_logloss: 0.206177 / full training 0.130557 - as above with 300 word2vec (BEST CV, BEST LB of 0.20106, LB for average of 0.19893)
 * [1374] valid_0's binary_logloss: 0.227318 - added 3 gram and fixed word_hamming (REMOVE)
 * [1110] valid_0's binary_logloss: 0.222018 - added countries as locations (REMOVE)
-* [760]	valid_0's binary_logloss: 0.176538 - added magic feature #2 - featureq1_q2_intersect (KEEP, BEST CV)
+* [760]	valid_0's binary_logloss: 0.176538 - added magic feature #2 - featureq1_q2_intersect (KEEP, BEST CV, REFERENCE)
 * [1265] valid_0's binary_logloss: 0.170199 / full training 0.159356 - magic #2 with word2vec (BEST CV, BEST LB 0.15505)
 * [840]	valid_0's binary_logloss: 0.175802 - added qid of test (KEEP)
 * [746]	valid_0's binary_logloss: 0.175691 - added qid difference (KEEP)
 * [1276] valid_0's binary_logloss: 0.170703 - with word2vec and qid features (REMOVE qid)
 * [755]	valid_0's binary_logloss: 0.17619 - no qid features after refactoring (REFERENCE)
-* [766]	valid_0's binary_logloss: 0.155857 / full training 0.208213 - categorical encoding on qids (BEST CV, LB 0.169) - need to fix CV
-* [548]	valid_0's binary_logloss: 0.156712 / full training 0.195772 - with word2vec and qid encoding (BEST CV, LB 0.165) - need to fix CV
+* [766]	valid_0's binary_logloss: 0.155857 / full training 0.208213 - categorical encoding on qids (BEST CV, LB 0.169)
+* [548]	valid_0's binary_logloss: 0.156712 / full training 0.195772 - with word2vec and qid encoding (BEST CV, LB 0.165)
+* [713]	valid_0's binary_logloss: 0.156755 - added encoding w/o qid features (BEST CV). Only 3% on test set vs 34% on train. Need another cat feature
+* [4048] valid_0's binary_logloss: 0.156085 - with X-delta of 300,000 sparse 1-10 gram
+* [2828] valid_0's binary_logloss: 0.264141 - reference fs1-4, freq, starter and duffy without down-sampling
+* [2000] training's binary_logloss: 0.149028 - with full X-delta and all best LB features (NO CV avail)
+* [1200] training's binary_logloss: 0.180335 - with full X-delta and all best LB features (NO CV avail)
+
+### Starter-03
+* [693] valid_0's binary_logloss: 0.177002 - starter 03 with lightgbm
+* [2013] train-logloss:0.144105	valid-logloss:0.182807 - starter 04 with xgboost
