@@ -233,11 +233,6 @@ data = pd.concat([train_df, test_df])
 
 data = convert_to_32(data)
 
-# data['log_diff_len'] = np.log1p(data['diff_len'])
-# data['ratio_len'] = data['len_q1'].apply(lambda x: x if x > 0.0 else 1.0)/\
-#   data['len_q2'].apply(lambda x: x if x > 0.0 else 1.0)
-# data['log_ratio_len'] = np.log1p(data['ratio_len'])
-
 data['diff_len_char'] = data['len_char_q1'] - data['len_char_q2']
 data['diff_len_word'] = data['len_word_q1'] - data['len_word_q2']
 
@@ -285,7 +280,7 @@ freq_features = [
     'q2_freq_q1_ratio', 'q1_q2_intersect']
 
 # -----------------------------------------------
-# XGBoost starter features
+# XGBoost starter features - 1
 train_starter = pd.read_csv('../input/starter_train_01.csv')
 test_starter = pd.read_csv('../input/starter_test_01.csv')
 starter_features = [
@@ -294,6 +289,18 @@ starter_features = [
     'stops1_ratio', 'stops2_ratio']
 train_starter = convert_to_32(train_starter)
 test_starter = convert_to_32(test_starter)
+
+# -----------------------------------------------
+# XGBoost starter features - 4
+train_starter_04 = pd.read_csv('../input/starter_train_04.csv')
+test_starter_04 = pd.read_csv('../input/starter_test_04.csv')
+starter_features_04 = [
+    'tfidf_wm_stops', 'jaccard', 'wc_diff',
+    'wc_ratio', 'wc_diff_unique', 'wc_ratio_unique', 'wc_diff_unq_stop',
+    'wc_ratio_unique_stop', 'same_start', 'char_diff', 'char_diff_unq_stop',
+    'total_unique_words', 'total_unq_words_stop', 'char_ratio']
+train_starter_04 = convert_to_32(train_starter_04)
+test_starter_04 = convert_to_32(test_starter_04)
 
 # -----------------------------------------------
 # Collins Duffy features
@@ -337,12 +344,12 @@ w2v_features = np.append(q1_train.columns.values, q2_train.columns.values)
 # data = 0
 # qid_features = ['qid1', 'qid2', 'qid_diff']
 
-# -----------------------------------------------
-# Categorical transformer on QIDs
-cat_columns = ['qid1', 'qid2']
-cat_features = []
-for col in cat_columns:
-    cat_features.append('w_ones_' + col)
+# # -----------------------------------------------
+# # Categorical transformer on QIDs
+# cat_columns = ['qid1', 'qid2']
+# cat_features = []
+# for col in cat_columns:
+#     cat_features.append('w_ones_' + col)
 
 # # -----------------------------------------------
 # # Bag of ngrams
@@ -382,6 +389,12 @@ test_df = pd.concat([test_df, test_starter], axis=1)
 train_starter = 0
 test_starter = 0
 
+train_df = pd.concat([train_df, train_starter_04], axis=1)
+test_df = pd.concat([test_df, test_starter_04], axis=1)
+
+train_starter_04 = 0
+test_starter_04 = 0
+
 # split back
 del train_df['is_duplicate']
 train_df['is_duplicate'] = train['is_duplicate']
@@ -405,8 +418,16 @@ pipe = Pipeline([
             ('get', PipeExtractor(duffy_features)),
             ('shape', PipeShape())
         ])),
-        ('starter', Pipeline([
+        ('starter-1', Pipeline([
             ('get', PipeExtractor(starter_features)),
+            ('shape', PipeShape())
+        ])),
+        ('starter-4', Pipeline([
+            ('get', PipeExtractor(starter_features_04)),
+            ('shape', PipeShape())
+        ])),
+        ('w2v', Pipeline([
+            ('get', PipeExtractor(w2v_features)),
             ('shape', PipeShape())
         ])),
         # ('qid', Pipeline([
@@ -416,11 +437,7 @@ pipe = Pipeline([
         # ('categorical', Pipeline([
         #     ('get', PipeExtractor(cat_features)),
         #     ('shape', PipeShape())
-        # ])),
-        ('w2v', Pipeline([
-            ('get', PipeExtractor(w2v_features)),
-            ('shape', PipeShape())
-        ]))
+        # ]))
     ])),
 ])
 
@@ -431,18 +448,18 @@ if mode == 'Val':
     x_train, x_valid, y_train, y_valid, idx_train, idx_valid =\
         train_test_split(x_train, y_train, x_train.index, test_size=0.2)
 
-    # # change validation to have the same distribution as test
-    # target = 0.175
-    # pos_idx = np.where(y_valid == 1)[0]
-    # neg_idx = np.where(y_valid == 0)[0]
-    # new_n_pos = np.int(target * len(neg_idx) / (1 - target))
+    # change validation to have the same distribution as test
+    target = 0.175
+    pos_idx = np.where(y_valid == 1)[0]
+    neg_idx = np.where(y_valid == 0)[0]
+    new_n_pos = np.int(target * len(neg_idx) / (1 - target))
 
-    # np.random.shuffle(pos_idx)
-    # idx_to_keep = np.sort(pos_idx[:new_n_pos])
-    # idx_to_drop = np.sort(pos_idx[new_n_pos:])
+    np.random.shuffle(pos_idx)
+    idx_to_keep = np.sort(pos_idx[:new_n_pos])
+    idx_to_drop = np.sort(pos_idx[new_n_pos:])
 
-    # y_valid = np.delete(y_valid, idx_to_drop)
-    # x_valid = x_valid.drop(x_valid.index[idx_to_drop])
+    y_valid = np.delete(y_valid, idx_to_drop)
+    x_valid = x_valid.drop(x_valid.index[idx_to_drop])
 
     # # Categorical transformer on QIDs
     # columns = ['qid1', 'qid2']
@@ -488,30 +505,28 @@ if mode == 'Train':
     x_train = pipe.fit_transform(x_train, y_train)
     x_test = pipe.transform(x_test)
 
-    # add sparse features
-    print("Read sparse matrix")
-    bag_delta_train = csr_matrix(
-        load_npz('../input/bag_delta_train.npz'), dtype=np.int8)
-    print("Merge sparse matrix")
-    x_train = hstack([csr_matrix(x_train), bag_delta_train])
-    bag_delta_train = 0
-    bag_delta_test = 0
-
-    # predictions, model = runXGB(x_train,y_train,x_test,
-    #           num_rounds=6000,max_depth=6,eta=0.1)
+    # # add sparse features
+    # print("Read sparse matrix")
+    # bag_delta_train = csr_matrix(
+    #     load_npz('../input/bag_delta_train.npz'), dtype=np.int8)
+    # print("Merge sparse matrix")
+    # x_train = hstack([csr_matrix(x_train), bag_delta_train])
+    # bag_delta_train = 0
+    # bag_delta_test = 0
 
     print("Start training")
-    predictions, model = runLGB(
-        x_train, y_train,
-        num_rounds=2, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
-    # # create test
-    # bag_delta_test = csr_matrix(
-    #     load_npz('../input/bag_delta_test.npz'), dtype=np.int8)
-    # x_test = hstack([csr_matrix(x_test), bag_delta_test])
+    # predictions, model = runXGB(
+    #     x_train, y_train, x_test,
+    #     num_rounds=6000, max_depth=6, eta=0.1)
+
+    predictions, model = runLGB(
+        x_train, y_train, x_test,
+        num_rounds=1161, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
     # creating submission
-    # preds = pd.DataFrame()
-    # preds['test_id'] = test['test_id']
-    # preds['is_duplicate'] = predictions
-    # create_submission(0.156755, preds, model)
+    print("Predicting test")
+    preds = pd.DataFrame()
+    preds['test_id'] = test['test_id']
+    preds['is_duplicate'] = predictions
+    create_submission(0.169939, preds, model)

@@ -48,6 +48,9 @@
 * [2828] valid_0's binary_logloss: 0.264141 - reference fs1-4, freq, starter and duffy without down-sampling
 * [2000] training's binary_logloss: 0.149028 - with full X-delta and all best LB features (NO CV avail)
 * [1200] training's binary_logloss: 0.180335 - with full X-delta and all best LB features (NO CV avail)
+* [760]	valid_0's binary_logloss: 0.176538 - no qid after refactoring (REFERENCE)
+* [669]	valid_0's binary_logloss: 0.176091 - added starter_04 (KEEP)
+* [1161] valid_0's binary_logloss: 0.169939 / training's 0.165172 - previous with w2vec features (best CV, best single model LB 0.15484)
 
 ### Starter-03
 * [693] valid_0's binary_logloss: 0.177002 - starter 03 with lightgbm
