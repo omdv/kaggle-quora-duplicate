@@ -9,8 +9,15 @@ from sklearn.cross_validation import train_test_split
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import log_loss
 from sklearn.feature_extraction.text import CountVectorizer
 from scipy.sparse import hstack, csr_matrix, load_npz
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 
 np.random.seed(42)
 
@@ -29,6 +36,43 @@ def try_apply_dict(x, dict_to_apply):
         return dict_to_apply[x]
     except KeyError:
         return 0
+
+
+class EnsembleClassifiersTransformer():
+    def __init__(self, nclass=1, classifiers=None, folds=5):
+        self.classifiers = classifiers
+        self.kfold = StratifiedKFold(folds)
+        self.nclass = nclass
+
+    def _fit_one_fold(self, X, y):
+        for classifier in self.classifiers:
+            classifier.fit(X, y)
+
+    def _predict_one_fold(self, X):
+        res = np.ones((X.shape[0], 1)) * (-1)
+        for classifier in self.classifiers:
+            res = np.column_stack((res, classifier.predict_proba(X)))
+        return np.array(res[:, 1:])
+
+    def fit_transform_train(self, X, y):
+        res = np.ones((X.shape[0], len(self.classifiers) * self.nclass)) * (-1)
+        X_train = X
+        # k-fold for training set
+        for (tr_idx, cv_idx) in self.kfold.split(X_train, y):
+            X_tr, y_tr = X_train[tr_idx], y[tr_idx]
+            X_cv, y_cv = X_train[cv_idx], y[cv_idx]
+            self._fit_one_fold(X_tr, y_tr)
+            res[cv_idx, :] = self._predict_one_fold(X_cv)
+            print ("Fold results (cv error):")
+            for (idx, clf) in enumerate(self.classifiers):
+                print(
+                    "clf {:2d}: {:06.4f}".
+                    format(idx, log_loss(y_cv, clf.predict_proba(X_cv))))
+        return res
+
+    def fit_transform_test(self, Xtr, ytr, Xts):
+        self._fit_one_fold(Xtr, ytr)
+        return self._predict_one_fold(Xts)
 
 
 class CategoricalTransformer():
@@ -154,6 +198,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
     param['colsample_bytree'] = 0.8
     param['seed'] = seed_val
     param['scale_pos_weight'] = scale_pos_weight
+    param['verbose_eval'] = 50
     num_rounds = num_rounds
 
     plst = list(param.items())
@@ -179,7 +224,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
 
 def runLGB(train_X, train_y, test_X=None, test_y=None, feature_names=None,
            seed_val=0, num_rounds=2000, max_depth=6,
-           eta=0.03, scale_pos_weight=1.0):
+           eta=0.03, scale_pos_weight=1.0, verbose_eval=1):
 
     params = {
         'objective': 'binary',
@@ -192,7 +237,7 @@ def runLGB(train_X, train_y, test_X=None, test_y=None, feature_names=None,
         'colsample_bytree': 0.8,
         'seed': seed_val,
         'verbose': 0,
-        'scale_pos_weight': scale_pos_weight
+        'scale_pos_weight': scale_pos_weight,
     }
 
     xgtrain = lgb.Dataset(train_X, train_y)
@@ -203,12 +248,14 @@ def runLGB(train_X, train_y, test_X=None, test_y=None, feature_names=None,
             params, xgtrain,
             num_boost_round=num_rounds,
             valid_sets=xgtest,
-            early_stopping_rounds=100)
+            early_stopping_rounds=100,
+            verbose_eval=verbose_eval)
     else:
         model = lgb.train(
             params, xgtrain,
             num_boost_round=num_rounds,
-            valid_sets=xgtrain)
+            valid_sets=xgtrain,
+            verbose_eval=verbose_eval)
 
     if test_X is None:
         pred_test_y = None
@@ -269,64 +316,66 @@ train_df = data[data['is_train'].notnull()]
 test_df = data[data['is_train'].isnull()]
 data = 0
 
-# -----------------------------------------------
-# Frequency features
-train_freq = pd.read_csv('../input/frequency_train.csv')
-test_freq = pd.read_csv('../input/frequency_test.csv')
-train_freq = convert_to_32(train_freq)
-test_freq = convert_to_32(test_freq)
-freq_features = [
-    'q1_freq', 'q2_freq', 'q1_freq_q1_ratio',
-    'q2_freq_q1_ratio', 'q1_q2_intersect']
+if False:
+    # -----------------------------------------------
+    # Frequency features
+    train_freq = pd.read_csv('../input/frequency_train.csv')
+    test_freq = pd.read_csv('../input/frequency_test.csv')
+    train_freq = convert_to_32(train_freq)
+    test_freq = convert_to_32(test_freq)
+    freq_features = [
+        'q1_freq', 'q2_freq', 'q1_freq_q1_ratio',
+        'q2_freq_q1_ratio', 'q1_q2_intersect']
 
-# -----------------------------------------------
-# XGBoost starter features - 1
-train_starter = pd.read_csv('../input/starter_train_01.csv')
-test_starter = pd.read_csv('../input/starter_test_01.csv')
-starter_features = [
-    'shared_2gram', 'cosine', 'tfidf_word_match', 'word_match',
-    'words_hamming', 'avg_world_len1', 'avg_world_len2',
-    'stops1_ratio', 'stops2_ratio']
-train_starter = convert_to_32(train_starter)
-test_starter = convert_to_32(test_starter)
+    # -----------------------------------------------
+    # XGBoost starter features - 1
+    train_starter = pd.read_csv('../input/starter_train_01.csv')
+    test_starter = pd.read_csv('../input/starter_test_01.csv')
+    starter_features = [
+        'shared_2gram', 'cosine', 'tfidf_word_match', 'word_match',
+        'words_hamming', 'avg_world_len1', 'avg_world_len2',
+        'stops1_ratio', 'stops2_ratio']
+    train_starter = convert_to_32(train_starter)
+    test_starter = convert_to_32(test_starter)
 
-# -----------------------------------------------
-# XGBoost starter features - 4
-train_starter_04 = pd.read_csv('../input/starter_train_04.csv')
-test_starter_04 = pd.read_csv('../input/starter_test_04.csv')
-starter_features_04 = [
-    'tfidf_wm_stops', 'jaccard', 'wc_diff',
-    'wc_ratio', 'wc_diff_unique', 'wc_ratio_unique', 'wc_diff_unq_stop',
-    'wc_ratio_unique_stop', 'same_start', 'char_diff', 'char_diff_unq_stop',
-    'total_unique_words', 'total_unq_words_stop', 'char_ratio']
-train_starter_04 = convert_to_32(train_starter_04)
-test_starter_04 = convert_to_32(test_starter_04)
+    # -----------------------------------------------
+    # XGBoost starter features - 4
+    train_starter_04 = pd.read_csv('../input/starter_train_04.csv')
+    test_starter_04 = pd.read_csv('../input/starter_test_04.csv')
+    starter_features_04 = [
+        'tfidf_wm_stops', 'jaccard', 'wc_diff',
+        'wc_ratio', 'wc_diff_unique', 'wc_ratio_unique', 'wc_diff_unq_stop',
+        'wc_ratio_unique_stop', 'same_start', 'char_diff',
+        'char_diff_unq_stop', 'total_unique_words', 'total_unq_words_stop',
+        'char_ratio']
+    train_starter_04 = convert_to_32(train_starter_04)
+    test_starter_04 = convert_to_32(test_starter_04)
 
-# -----------------------------------------------
-# Collins Duffy features
-# https://www.kaggle.com/c/quora-question-pairs/discussion/32334
-train_duffy = pd.read_csv('../input/duffy_train.csv')
-test_duffy = pd.read_csv('../input/duffy_test.csv')
-duffy_features = [
-    'sd_1e-1_sst', 'sd_1e-1_st', 'sd_1e-2_sst', 'sd_1e-2_st',
-    'sd_1e0_sst', 'sd_1e0_st', 'sd_2e-1_sst', 'sd_2e-1_st', 'sd_5e-1_sst',
-    'sd_5e-1_st', 'sd_5e-2_sst', 'sd_5e-2_st', 'sd_8e-1_sst', 'sd_8e-1_st']
-train_duffy = convert_to_32(train_duffy)
-test_duffy = convert_to_32(test_duffy)
+    # -----------------------------------------------
+    # Collins Duffy features
+    # https://www.kaggle.com/c/quora-question-pairs/discussion/32334
+    train_duffy = pd.read_csv('../input/duffy_train.csv')
+    test_duffy = pd.read_csv('../input/duffy_test.csv')
+    duffy_features = [
+        'sd_1e-1_sst', 'sd_1e-1_st', 'sd_1e-2_sst', 'sd_1e-2_st',
+        'sd_1e0_sst', 'sd_1e0_st', 'sd_2e-1_sst', 'sd_2e-1_st', 'sd_5e-1_sst',
+        'sd_5e-1_st', 'sd_5e-2_sst', 'sd_5e-2_st', 'sd_8e-1_sst', 'sd_8e-1_st']
+    train_duffy = convert_to_32(train_duffy)
+    test_duffy = convert_to_32(test_duffy)
 
-# -----------------------------------------------
-# Word2Vector vectors for q1 and q2
-h5 = tables.open_file('../input/w2v.h5', mode='r')
-q1_train = pd.DataFrame(np.array(h5.root.q1_train[:]).astype(np.float32))
-q2_train = pd.DataFrame(np.array(h5.root.q2_train[:]).astype(np.float32))
-q1_test = pd.DataFrame(np.array(h5.root.q1_test[:]).astype(np.float32))
-q2_test = pd.DataFrame(np.array(h5.root.q2_test[:]).astype(np.float32))
-h5.close()
-q1_train.columns = ['q1_' + str(x) for x in q1_train.columns]
-q2_train.columns = ['q2_' + str(x) for x in q2_train.columns]
-q1_test.columns = ['q1_' + str(x) for x in q1_test.columns]
-q2_test.columns = ['q2_' + str(x) for x in q2_test.columns]
-w2v_features = np.append(q1_train.columns.values, q2_train.columns.values)
+    # -----------------------------------------------
+    # Word2Vector vectors for q1 and q2
+    h5 = tables.open_file('../input/w2v.h5', mode='r')
+    q1_train = pd.DataFrame(np.array(h5.root.q1_train[:]).astype(np.float32))
+    q2_train = pd.DataFrame(np.array(h5.root.q2_train[:]).astype(np.float32))
+    q1_test = pd.DataFrame(np.array(h5.root.q1_test[:]).astype(np.float32))
+    q2_test = pd.DataFrame(np.array(h5.root.q2_test[:]).astype(np.float32))
+    h5.close()
+    q1_train.columns = ['q1_' + str(x) for x in q1_train.columns]
+    q2_train.columns = ['q2_' + str(x) for x in q2_train.columns]
+    q1_test.columns = ['q1_' + str(x) for x in q1_test.columns]
+    q2_test.columns = ['q2_' + str(x) for x in q2_test.columns]
+    w2v_features = np.append(q1_train.columns.values, q2_train.columns.values)
 
 # # -----------------------------------------------
 # # Try question IDs
@@ -361,39 +410,40 @@ w2v_features = np.append(q1_train.columns.values, q2_train.columns.values)
 # print("Fitting Bag")
 # bag.fit(pd.concat((train.question1, train.question2)).unique())
 
-# -----------------------------------------------
-# merge all
-train_df = pd.concat([train_df, train_freq], axis=1)
-test_df = pd.concat([test_df, test_freq], axis=1)
+if False:
+    # -----------------------------------------------
+    # merge all
+    train_df = pd.concat([train_df, train_freq], axis=1)
+    test_df = pd.concat([test_df, test_freq], axis=1)
 
-train_freq = 0
-test_freq = 0
+    train_freq = 0
+    test_freq = 0
 
-train_df = pd.merge(train_df, train_duffy, on='id', how='left')
-test_df = pd.merge(test_df, test_duffy, on='id', how='left')
+    train_df = pd.merge(train_df, train_duffy, on='id', how='left')
+    test_df = pd.merge(test_df, test_duffy, on='id', how='left')
 
-train_duffy = 0
-test_duffy = 0
+    train_duffy = 0
+    test_duffy = 0
 
-train_df = pd.concat([train_df, q1_train, q2_train], axis=1)
-test_df = pd.concat([test_df, q1_test, q2_test], axis=1)
+    train_df = pd.concat([train_df, q1_train, q2_train], axis=1)
+    test_df = pd.concat([test_df, q1_test, q2_test], axis=1)
 
-q1_train = 0
-q2_train = 0
-q1_test = 0
-q2_test = 0
+    q1_train = 0
+    q2_train = 0
+    q1_test = 0
+    q2_test = 0
 
-train_df = pd.concat([train_df, train_starter], axis=1)
-test_df = pd.concat([test_df, test_starter], axis=1)
+    train_df = pd.concat([train_df, train_starter], axis=1)
+    test_df = pd.concat([test_df, test_starter], axis=1)
 
-train_starter = 0
-test_starter = 0
+    train_starter = 0
+    test_starter = 0
 
-train_df = pd.concat([train_df, train_starter_04], axis=1)
-test_df = pd.concat([test_df, test_starter_04], axis=1)
+    train_df = pd.concat([train_df, train_starter_04], axis=1)
+    test_df = pd.concat([test_df, test_starter_04], axis=1)
 
-train_starter_04 = 0
-test_starter_04 = 0
+    train_starter_04 = 0
+    test_starter_04 = 0
 
 # split back
 del train_df['is_duplicate']
@@ -410,26 +460,16 @@ pipe = Pipeline([
             ('get', PipeExtractor(fs1 + fs2 + fs4)),
             ('shape', PipeShape())
         ])),
-        ('frequency', Pipeline([
-            ('get', PipeExtractor(freq_features)),
-            ('shape', PipeShape())
-        ])),
-        ('collins_duffy', Pipeline([
-            ('get', PipeExtractor(duffy_features)),
-            ('shape', PipeShape())
-        ])),
-        ('starter-1', Pipeline([
-            ('get', PipeExtractor(starter_features)),
-            ('shape', PipeShape())
-        ])),
-        ('starter-4', Pipeline([
-            ('get', PipeExtractor(starter_features_04)),
-            ('shape', PipeShape())
-        ])),
-        ('w2v', Pipeline([
-            ('get', PipeExtractor(w2v_features)),
-            ('shape', PipeShape())
-        ])),
+        # ('frequency', Pipeline([
+        #     ('get', PipeExtractor(
+        #         freq_features + duffy_features +
+        #         starter_features + starter_features_04)),
+        #     ('shape', PipeShape())
+        # ])),
+        # ('w2v', Pipeline([
+        #     ('get', PipeExtractor(w2v_features)),
+        #     ('shape', PipeShape())
+        # ])),
         # ('qid', Pipeline([
         #     ('get', PipeExtractor(qid_features)),
         #     ('shape', PipeShape())
@@ -441,7 +481,7 @@ pipe = Pipeline([
     ])),
 ])
 
-mode = 'Train'
+mode = 'TrainSparse'
 
 if mode == 'Val':
     x_test = 0
@@ -494,7 +534,7 @@ if mode == 'Val':
         x_train, y_train, x_valid, y_valid,
         num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
-if mode == 'Train':
+elif mode == 'Train':
     # # Categorical transformer on QIDs
     # for col in cat_columns:
     #     ctf = CategoricalTransformer(col)
@@ -530,3 +570,174 @@ if mode == 'Train':
     preds['test_id'] = test['test_id']
     preds['is_duplicate'] = predictions
     create_submission(0.169939, preds, model)
+
+elif mode == 'TrainSparse':
+    lgr = LogisticRegression(
+        C=0.1, solver='sag',
+        class_weight={1: 0.472, 0: 1.309}, n_jobs=-1)
+    rfc = RandomForestClassifier(
+        n_estimators=800, class_weight={1: 0.472, 0: 1.309}, n_jobs=-1)
+
+    # process pipeline
+    x_train = pipe.fit_transform(x_train, y_train)
+    x_test = pipe.transform(x_test)
+    x_train = np.nan_to_num(x_train)
+    x_test = np.nan_to_num(x_test)
+
+    print("Read train matrix")
+    bag_delta_train = csr_matrix(
+        load_npz('../input/bag_delta_train.npz'), dtype=np.int8)
+
+    print("Merge train matrix")
+    x_train = hstack([csr_matrix(x_train), bag_delta_train])
+    bag_delta_train = 0
+
+    print("Start training")
+    # predictions, model = runLGB(
+    #     x_train, y_train, x_test,
+    #     num_rounds=1161, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+    # print("Writing model: ", "full_model.pkl")
+    # pickle.dump(model, open("full_model.pkl", 'wb'))
+    rfc.fit(x_train, y_train)
+    model = 0
+
+    print("Read test matrix")
+    bag_delta_test = csr_matrix(
+        load_npz('../input/bag_delta_test.npz'), dtype=np.int8)
+
+    print("Merge test matrix")
+    x_test = hstack([csr_matrix(x_test), bag_delta_test])
+    bag_delta_test = 0
+
+    print("Predict test matrix")
+    # predictions = model.predict(x_test)
+    predictions = rfc.predict_proba(x_test)[:, 1]
+    x_test = 0
+
+    print("Writing submission")
+    preds = pd.DataFrame()
+    preds['test_id'] = test['test_id']
+    preds['is_duplicate'] = predictions
+    create_submission(0.1000, preds, model)
+
+elif mode == 'MetaTrain':
+    rfc = RandomForestClassifier(n_estimators=800, n_jobs=-1)
+    knbc = KNeighborsClassifier(n_neighbors=128, n_jobs=-1)
+    lgr = LogisticRegression(C=0.1, solver='sag', n_jobs=-1)
+
+    # process pipeline
+    x_train = pipe.fit_transform(x_train, y_train)
+    x_test = pipe.transform(x_test)
+
+    # initiate meta array
+    x_train_meta = np.ones((x_train.shape[0], 1)) * (-1)
+    x_test_meta = np.ones((x_test.shape[0], 1)) * (-1)
+
+    # predicting train out-of-fold
+    kfold = StratifiedKFold(5)
+
+    # lightgbm
+    print("Start LightGBM")
+    # Train
+    res = np.ones((x_train.shape[0], 1)) * (-1)
+    for (tr_idx, cv_idx) in kfold.split(x_train, y_train):
+        preds, model = runLGB(
+            x_train[tr_idx, :], y_train[tr_idx], x_train[cv_idx, :],
+            num_rounds=1161, max_depth=6, eta=0.02,
+            verbose_eval=100)
+        res[cv_idx] = preds.reshape(-1, 1)
+    x_train_meta = np.column_stack((x_train_meta, res))
+    # Test
+    preds, model = runLGB(
+        x_train, y_train, x_test, verbose_eval=100,
+        num_rounds=1161, max_depth=6, eta=0.02)
+    x_test_meta = np.column_stack((x_test_meta, preds))
+
+    # other clf section
+    x_train = np.nan_to_num(x_train)
+    x_test = np.nan_to_num(x_test)
+    for (clf, name) in [
+        (lgr, 'Logistic regression'),
+        (rfc, 'Random Forest classifier')
+    ]:
+        print("Starting ", name)
+        # Train
+        res = np.ones((x_train.shape[0], 1)) * (-1)
+        for (tr_idx, cv_idx) in kfold.split(x_train, y_train):
+            clf.fit(x_train[tr_idx, :], y_train[tr_idx])
+            preds = clf.predict_proba(x_train[cv_idx, :])[:, 1]
+            print("Finished ", name, " fold...")
+            res[cv_idx] = preds.reshape(-1, 1)
+        x_train_meta = np.column_stack((x_train_meta, res))
+        # Test
+        clf.fit(x_train, y_train)
+        preds = clf.predict_proba(x_test)[:, 1]
+        x_test_meta = np.column_stack((x_test_meta, preds))
+
+    # Remove dummy column
+    x_train_meta = x_train_meta[:, 1:]
+    x_test_meta = x_test_meta[:, 1:]
+
+    np.savetxt("meta_train_best_single", x_train_meta)
+    np.savetxt("meta_test_best_single", x_test_meta)
+
+    # predictions, model = runLGB(
+    #     x_train_meta, y_train, x_test_meta,
+    #     num_rounds=100, eta=0.02, max_depth=6, scale_pos_weight=0.36)
+
+    # # creating submission
+    # preds = pd.DataFrame()
+    # preds['test_id'] = test['test_id']
+    # preds['is_duplicate'] = predictions
+    # create_submission(0.10000, preds, model)
+
+elif mode == 'MetaValid':
+    meta_train_1 = pd.read_csv('../input/deepnet_meta_train.csv')
+    meta_train_2 = pd.read_csv('../input/best_single_meta_train.csv')
+
+    meta_train = pd.concat([
+        meta_train_1,
+        meta_train_2],
+        axis=1)
+
+    x_train, x_valid, y_train, y_valid =\
+        train_test_split(meta_train, y_train, test_size=0.2)
+
+    # change validation to have the same distribution as test
+    target = 0.175
+    pos_idx = np.where(y_valid == 1)[0]
+    neg_idx = np.where(y_valid == 0)[0]
+    new_n_pos = np.int(target * len(neg_idx) / (1 - target))
+
+    np.random.shuffle(pos_idx)
+    idx_to_keep = np.sort(pos_idx[:new_n_pos])
+    idx_to_drop = np.sort(pos_idx[new_n_pos:])
+
+    y_valid = np.delete(y_valid, idx_to_drop)
+    x_valid = x_valid.drop(x_valid.index[idx_to_drop])
+
+    predictions, model = runLGB(
+        x_train, y_train, x_valid, y_valid,
+        num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+
+elif mode == 'MetaSubmit':
+    meta_train = pd.concat([
+        pd.read_csv('../input/deepnet_meta_train.csv'),
+        pd.read_csv('../input/best_single_meta_train.csv')],
+        axis=1)
+
+    meta_test = pd.concat([
+        pd.read_csv('../input/deepnet_meta_test.csv'),
+        pd.read_csv('../input/best_single_meta_test.csv')],
+        axis=1)
+    del meta_test['test_id']
+
+    predictions, model = runLGB(
+        meta_train.values, y_train, meta_test.values,
+        num_rounds=100, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+
+    # creating submission
+    preds = pd.DataFrame()
+    preds['test_id'] = test['test_id']
+    preds['is_duplicate'] = predictions
+    create_submission(0.161593, preds, model)

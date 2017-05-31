@@ -41,8 +41,8 @@
 * [746]	valid_0's binary_logloss: 0.175691 - added qid difference (KEEP)
 * [1276] valid_0's binary_logloss: 0.170703 - with word2vec and qid features (REMOVE qid)
 * [755]	valid_0's binary_logloss: 0.17619 - no qid features after refactoring (REFERENCE)
-* [766]	valid_0's binary_logloss: 0.155857 / full training 0.208213 - categorical encoding on qids (BEST CV, LB 0.169)
-* [548]	valid_0's binary_logloss: 0.156712 / full training 0.195772 - with word2vec and qid encoding (BEST CV, LB 0.165)
+* [766]	valid_0's binary_logloss: 0.155857 / full training 0.208213 - categorical encoding on qids (BEST CV, LB 0.169) (REMOVE)
+* [548]	valid_0's binary_logloss: 0.156712 / full training 0.195772 - with word2vec and qid encoding (BEST CV, LB 0.165) (REMOVE)
 * [713]	valid_0's binary_logloss: 0.156755 - added encoding w/o qid features (BEST CV). Only 3% on test set vs 34% on train. Need another cat feature
 * [4048] valid_0's binary_logloss: 0.156085 - with X-delta of 300,000 sparse 1-10 gram
 * [2828] valid_0's binary_logloss: 0.264141 - reference fs1-4, freq, starter and duffy without down-sampling
@@ -50,7 +50,12 @@
 * [1200] training's binary_logloss: 0.180335 - with full X-delta and all best LB features (NO CV avail)
 * [760]	valid_0's binary_logloss: 0.176538 - no qid after refactoring (REFERENCE)
 * [669]	valid_0's binary_logloss: 0.176091 - added starter_04 (KEEP)
-* [1161] valid_0's binary_logloss: 0.169939 / training's 0.165172 - previous with w2vec features (best CV, best single model LB 0.15484)
+* [1161] valid_0's binary_logloss: 0.169939 / training's 0.165172 - previous with w2vec features (best single model LB 0.15484)
+
+### Stacking
+* [122]	valid_0's binary_logloss: 0.162682 - with deepnet, lgbm and lrg, mixed lgbm and lrg class-weight approach (lgb 1161)
+* [296]	valid_0's binary_logloss: 0.168114 - same as above but without deepnet
+* [94]	valid_0's binary_logloss: 0.161593 / training 0.253514 - added second version of lgbm (no class weight) and rfc (800 iters) (LB 0.14991, best LB)
 
 ### Starter-03
 * [693] valid_0's binary_logloss: 0.177002 - starter 03 with lightgbm
