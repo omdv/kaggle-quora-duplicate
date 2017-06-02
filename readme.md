@@ -56,6 +56,8 @@
 * [122]	valid_0's binary_logloss: 0.162682 - with deepnet, lgbm and lrg, mixed lgbm and lrg class-weight approach (lgb 1161)
 * [296]	valid_0's binary_logloss: 0.168114 - same as above but without deepnet
 * [94]	valid_0's binary_logloss: 0.161593 / training 0.253514 - added second version of lgbm (no class weight) and rfc (800 iters) (LB 0.14991, best LB)
+* [90]	valid_0's binary_logloss: 0.159625 - added third pipeline (lgb and rfc with pipe2 w/o word2vec)
+* [578]	train-logloss:0.246874	test-logloss:0.159595 - same as above but with XGB as second level clf (LB 0.14750 of two combined level 2)
 
 ### Starter-03
 * [693] valid_0's binary_logloss: 0.177002 - starter 03 with lightgbm

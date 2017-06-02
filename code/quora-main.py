@@ -185,7 +185,7 @@ def create_submission(score, pred, model):
 
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
            seed_val=0, num_rounds=2000, max_depth=6,
-           eta=0.03, scale_pos_weight=1.0):
+           eta=0.03, scale_pos_weight=1.0, verbose_eval=10):
 
     param = {}
     param['objective'] = 'binary:logistic'
@@ -199,6 +199,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
     param['seed'] = seed_val
     param['scale_pos_weight'] = scale_pos_weight
     param['verbose_eval'] = 50
+    param['scale_pos_weight'] = scale_pos_weight
     num_rounds = num_rounds
 
     plst = list(param.items())
@@ -208,12 +209,12 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
         xgtest = xgb.DMatrix(test_X, label=test_y)
         watchlist = [(xgtrain, 'train'), (xgtest, 'test')]
         model = xgb.train(plst, xgtrain, num_rounds, watchlist,
-                          early_stopping_rounds=100, verbose_eval=10)
+                          early_stopping_rounds=100, verbose_eval=verbose_eval)
     else:
         xgtest = xgb.DMatrix(test_X)
         watchlist = [(xgtrain, 'train')]
         model = xgb.train(plst, xgtrain, num_rounds,
-                          watchlist, verbose_eval=10)
+                          watchlist, verbose_eval=verbose_eval)
 
     if test_y is None:
         pred_test_y = model.predict(xgtest)
@@ -481,7 +482,7 @@ pipe = Pipeline([
     ])),
 ])
 
-mode = 'TrainSparse'
+mode = 'MetaSubmit'
 
 if mode == 'Val':
     x_test = 0
@@ -527,12 +528,17 @@ if mode == 'Val':
     # bag_delta_train = 0
     # bag_delta_valid = 0
 
-    # # preds, model = runXGB(x_train,y_train,x_valid,y_valid,
-    # #           num_rounds=6000,max_depth=6,eta=0.1)
+    # preds, model = runLGB(
+    #     x_train, y_train, x_valid, y_valid,
+    #     num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
-    preds, model = runLGB(
-        x_train, y_train, x_valid, y_valid,
-        num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+    x_train = np.nan_to_num(x_train)
+    x_valid = np.nan_to_num(x_valid)
+    lr = LogisticRegression(
+        C=0.1, solver='newton-cg',
+        class_weight={1: 0.472, 0: 1.309}, n_jobs=-1, max_iter=1000)
+    lr.fit(x_train, y_train)
+    print(log_loss(y_valid, lr.predict_proba(x_valid)[:, 1]))
 
 elif mode == 'Train':
     # # Categorical transformer on QIDs
@@ -572,11 +578,9 @@ elif mode == 'Train':
     create_submission(0.169939, preds, model)
 
 elif mode == 'TrainSparse':
-    lgr = LogisticRegression(
-        C=0.1, solver='sag',
-        class_weight={1: 0.472, 0: 1.309}, n_jobs=-1)
-    rfc = RandomForestClassifier(
-        n_estimators=800, class_weight={1: 0.472, 0: 1.309}, n_jobs=-1)
+    clf = MLPClassifier(
+        alpha=1e-5, batch_size=256, max_iter=2,
+        hidden_layer_sizes=(256, 64), random_state=1)
 
     # process pipeline
     x_train = pipe.fit_transform(x_train, y_train)
@@ -593,13 +597,8 @@ elif mode == 'TrainSparse':
     bag_delta_train = 0
 
     print("Start training")
-    # predictions, model = runLGB(
-    #     x_train, y_train, x_test,
-    #     num_rounds=1161, max_depth=6, eta=0.02, scale_pos_weight=0.36)
-    # print("Writing model: ", "full_model.pkl")
-    # pickle.dump(model, open("full_model.pkl", 'wb'))
-    rfc.fit(x_train, y_train)
-    model = 0
+    clf.fit(x_train, y_train)
+    print("Writing model to full_model.pkl")
 
     print("Read test matrix")
     bag_delta_test = csr_matrix(
@@ -610,8 +609,7 @@ elif mode == 'TrainSparse':
     bag_delta_test = 0
 
     print("Predict test matrix")
-    # predictions = model.predict(x_test)
-    predictions = rfc.predict_proba(x_test)[:, 1]
+    predictions = clf.predict_proba(x_test)
     x_test = 0
 
     print("Writing submission")
@@ -622,8 +620,6 @@ elif mode == 'TrainSparse':
 
 elif mode == 'MetaTrain':
     rfc = RandomForestClassifier(n_estimators=800, n_jobs=-1)
-    knbc = KNeighborsClassifier(n_neighbors=128, n_jobs=-1)
-    lgr = LogisticRegression(C=0.1, solver='sag', n_jobs=-1)
 
     # process pipeline
     x_train = pipe.fit_transform(x_train, y_train)
@@ -643,21 +639,21 @@ elif mode == 'MetaTrain':
     for (tr_idx, cv_idx) in kfold.split(x_train, y_train):
         preds, model = runLGB(
             x_train[tr_idx, :], y_train[tr_idx], x_train[cv_idx, :],
-            num_rounds=1161, max_depth=6, eta=0.02,
+            num_rounds=1000, max_depth=6, eta=0.02,
             verbose_eval=100)
         res[cv_idx] = preds.reshape(-1, 1)
     x_train_meta = np.column_stack((x_train_meta, res))
     # Test
     preds, model = runLGB(
         x_train, y_train, x_test, verbose_eval=100,
-        num_rounds=1161, max_depth=6, eta=0.02)
+        num_rounds=1000, max_depth=6, eta=0.02)
     x_test_meta = np.column_stack((x_test_meta, preds))
 
     # other clf section
     x_train = np.nan_to_num(x_train)
     x_test = np.nan_to_num(x_test)
     for (clf, name) in [
-        (lgr, 'Logistic regression'),
+        # (lgr, 'Logistic regression'),
         (rfc, 'Random Forest classifier')
     ]:
         print("Starting ", name)
@@ -680,6 +676,24 @@ elif mode == 'MetaTrain':
 
     np.savetxt("meta_train_best_single", x_train_meta)
     np.savetxt("meta_test_best_single", x_test_meta)
+
+    # merging
+    cols = ['lgb-3', 'rfc-3']
+    x_train_meta = pd.DataFrame(x_train_meta)
+    x_train_meta.columns = cols
+    x_test_meta = pd.DataFrame(x_test_meta)
+    x_test_meta.columns = cols
+
+    x_train_new = pd.concat([
+        pd.read_csv('../input/best_single_meta_train.csv'),
+        x_train_meta], axis=1)
+    x_test_new = pd.concat([
+        pd.read_csv('../input/best_single_meta_test.csv'),
+        x_test_meta], axis=1)
+
+    x_train_new.to_csv('../input/best_single_meta_train.csv', index=False)
+    x_test_new.to_csv('../input/best_single_meta_test.csv', index=False)
+
 
     # predictions, model = runLGB(
     #     x_train_meta, y_train, x_test_meta,
@@ -716,7 +730,7 @@ elif mode == 'MetaValid':
     y_valid = np.delete(y_valid, idx_to_drop)
     x_valid = x_valid.drop(x_valid.index[idx_to_drop])
 
-    predictions, model = runLGB(
+    predictions, model = runXGB(
         x_train, y_train, x_valid, y_valid,
         num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
@@ -732,12 +746,15 @@ elif mode == 'MetaSubmit':
         axis=1)
     del meta_test['test_id']
 
-    predictions, model = runLGB(
+    predictions1, model = runLGB(
         meta_train.values, y_train, meta_test.values,
-        num_rounds=100, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+        num_rounds=90, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+    predictions2, model = runXGB(
+        meta_train.values, y_train, meta_test.values,
+        num_rounds=578, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
     # creating submission
     preds = pd.DataFrame()
     preds['test_id'] = test['test_id']
-    preds['is_duplicate'] = predictions
-    create_submission(0.161593, preds, model)
+    preds['is_duplicate'] = (predictions1 + predictions2) / 2
+    # create_submission(0.159595, preds, model)
