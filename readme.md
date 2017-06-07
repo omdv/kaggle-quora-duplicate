@@ -49,8 +49,13 @@
 * [2000] training's binary_logloss: 0.149028 - with full X-delta and all best LB features (NO CV avail)
 * [1200] training's binary_logloss: 0.180335 - with full X-delta and all best LB features (NO CV avail)
 * [760]	valid_0's binary_logloss: 0.176538 - no qid after refactoring (REFERENCE)
-* [669]	valid_0's binary_logloss: 0.176091 - added starter_04 (KEEP)
+* [669]	valid_0's binary_logloss: 0.176091 - added starter_04 (KEEP - REFERENCE)
 * [1161] valid_0's binary_logloss: 0.169939 / training's 0.165172 - previous with w2vec features (best single model LB 0.15484)
+* [2421]  valid_0's binary_logloss: 0.153323 - validation with 30k n-grams, fitted on full train
+* [1924]  valid_0's binary_logloss: 0.154297 / training 0.13055 - validation with 30k n-grams, fitted on validation set only (BEST single model LB 0.15410)
+* [9999]  train-logloss:0.091085  test-logloss:0.152422 - xgboost didn't finish in 10k iters
+* [664]	valid_0's binary_logloss: 0.176111 - added cat encoding for freq features (REMOVE)
+
 
 ### Stacking
 * [122]	valid_0's binary_logloss: 0.162682 - with deepnet, lgbm and lrg, mixed lgbm and lrg class-weight approach (lgb 1161)
@@ -62,6 +67,12 @@
 * [131]	valid_0's binary_logloss: 0.158475 - removed logistic regression
 * [859]	train-logloss:0.239515	test-logloss:0.158271 - fifth pipeline xgb as second level
 * [708]	train-logloss:0.241103	test-logloss:0.158282 - removed logistic regression
+
+#### Pipeline 30k
+* [1024]  valid_0's binary_logloss: 0.157962 - added 30k pipeline (lgb second level)
+* [752]   train-logloss:0.239588  test-logloss:0.158081 - xgb as second level
+* Average of two 2nd level: CV = 0.157955758281
+
 
 ### Starter-03
 * [693] valid_0's binary_logloss: 0.177002 - starter 03 with lightgbm

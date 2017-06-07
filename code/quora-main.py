@@ -8,16 +8,12 @@ import tables
 from sklearn.cross_validation import train_test_split
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.metrics import log_loss
 from sklearn.feature_extraction.text import CountVectorizer
-from scipy.sparse import hstack, csr_matrix, load_npz
+from scipy.sparse import hstack, csr_matrix, load_npz, csc_matrix
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
 from sklearn.preprocessing import MinMaxScaler
 
 np.random.seed(42)
@@ -184,7 +180,7 @@ def create_submission(score, pred, model):
     pred.to_csv(sub_file, index=False)
 
 
-def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
+def runXGB(train_X, train_y, test_X=None, test_y=None, feature_names=None,
            seed_val=0, num_rounds=2000, max_depth=6,
            eta=0.03, scale_pos_weight=1.0, verbose_eval=10):
 
@@ -212,7 +208,6 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
         model = xgb.train(plst, xgtrain, num_rounds, watchlist,
                           early_stopping_rounds=100, verbose_eval=verbose_eval)
     else:
-        xgtest = xgb.DMatrix(test_X)
         watchlist = [(xgtrain, 'train')]
         model = xgb.train(plst, xgtrain, num_rounds,
                           watchlist, verbose_eval=verbose_eval)
@@ -220,6 +215,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None,
     if test_X is None:
         pred_test_y = None
     else:
+        xgtest = xgb.DMatrix(test_X)
         pred_test_y = model.predict(xgtest)
     return pred_test_y, model
 
@@ -231,9 +227,8 @@ def runLGB(train_X, train_y, test_X=None, test_y=None, feature_names=None,
     params = {
         'objective': 'binary',
         'metric': 'binary_logloss',
-        'eta': eta,
+        'learning_rate': eta,
         'max_depth': max_depth,
-        'silent': 1,
         'min_child_weight': 1,
         'subsample': 0.8,
         'colsample_bytree': 0.8,
@@ -318,7 +313,7 @@ train_df = data[data['is_train'].notnull()]
 test_df = data[data['is_train'].isnull()]
 data = 0
 
-if False:
+if True:
     # -----------------------------------------------
     # Frequency features
     train_freq = pd.read_csv('../input/frequency_train.csv')
@@ -397,22 +392,22 @@ if False:
 
 # # -----------------------------------------------
 # # Categorical transformer on QIDs
-# cat_columns = ['qid1', 'qid2']
+# cat_columns = ['q1_freq', 'q2_freq', 'q1_q2_intersect']
 # cat_features = []
 # for col in cat_columns:
 #     cat_features.append('w_ones_' + col)
 
 # # -----------------------------------------------
 # # Bag of ngrams
-# bag = CountVectorizer(
-#     max_df=0.999, min_df=50, max_features=300000,
-#     analyzer='char', ngram_range=(1, 10), binary=True, lowercase=True)
-# train.loc[train.question1.isnull(), 'question1'] = ''
-# train.loc[train.question2.isnull(), 'question2'] = ''
-# print("Fitting Bag")
-# bag.fit(pd.concat((train.question1, train.question2)).unique())
+bag = CountVectorizer(
+    max_df=0.999, min_df=50, max_features=30000,
+    analyzer='char', ngram_range=(1, 5), binary=True, lowercase=True)
+train_df.loc[train_df.question1.isnull(), 'question1'] = ''
+train_df.loc[train_df.question2.isnull(), 'question2'] = ''
+test_df.loc[test_df.question1.isnull(), 'question1'] = ''
+test_df.loc[test_df.question2.isnull(), 'question2'] = ''
 
-if False:
+if True:
     # -----------------------------------------------
     # merge all
     train_df = pd.concat([train_df, train_freq], axis=1)
@@ -462,12 +457,12 @@ pipe = Pipeline([
             ('get', PipeExtractor(fs1 + fs2 + fs4)),
             ('shape', PipeShape())
         ])),
-        # ('frequency', Pipeline([
-        #     ('get', PipeExtractor(
-        #         freq_features + duffy_features +
-        #         starter_features + starter_features_04)),
-        #     ('shape', PipeShape())
-        # ])),
+        ('frequency', Pipeline([
+            ('get', PipeExtractor(
+                freq_features + duffy_features +
+                starter_features + starter_features_04)),
+            ('shape', PipeShape())
+        ])),
         # ('w2v', Pipeline([
         #     ('get', PipeExtractor(w2v_features)),
         #     ('shape', PipeShape())
@@ -487,7 +482,7 @@ pipe = Pipeline([
     ])),
 ])
 
-mode = 'MetaSubmit'
+mode = 'Val'
 
 if mode == 'Val':
     x_test = 0
@@ -507,8 +502,19 @@ if mode == 'Val':
     y_valid = np.delete(y_valid, idx_to_drop)
     x_valid = x_valid.drop(x_valid.index[idx_to_drop])
 
+    # # Bag of n-grams
+    # print("Transforming Bag of features")
+    # bag.fit(pd.concat((x_train.question1, x_train.question2)).unique())
+    # question1_train = bag.transform(x_train['question1'])
+    # question2_train = bag.transform(x_train['question2'])
+    # question1_valid = bag.transform(x_valid['question1'])
+    # question2_valid = bag.transform(x_valid['question2'])
+
+    # bag_delta_valid = -(question1_valid != question2_valid).astype(np.int8)
+    # bag_delta_train = -(question1_train != question2_train).astype(np.int8)
+
     # # Categorical transformer on QIDs
-    # columns = ['qid1', 'qid2']
+    # columns = ['q1_freq', 'q2_freq', 'q1_q2_intersect']
     # for col in columns:
     #     ctf = CategoricalTransformer(col)
     #     x_train = ctf.fit_transform_train(x_train, x_train["is_duplicate"])
@@ -518,32 +524,15 @@ if mode == 'Val':
     x_train = pipe.fit_transform(x_train, y_train)
     x_valid = pipe.transform(x_valid)
 
-    # Bag of n-grams
-    # print("Transforming Bag of features")
-    # question1_train = bag.transform(train.loc[idx_train, 'question1'])
-    # question2_train = bag.transform(train.loc[idx_train, 'question2'])
-    # question1_valid = bag.transform(train.loc[idx_valid, 'question1'])
-    # question2_valid = bag.transform(train.loc[idx_valid, 'question2'])
-    # bag_delta_valid = -(question1_valid != question2_valid).astype(np.int8)
-    # bag_delta_train = -(question1_train != question2_train).astype(np.int8)
-
     # # merge with sparse
     # x_train = hstack([csr_matrix(x_train), bag_delta_train])
     # x_valid = hstack([csr_matrix(x_valid), bag_delta_valid])
     # bag_delta_train = 0
     # bag_delta_valid = 0
 
-    # preds, model = runLGB(
-    #     x_train, y_train, x_valid, y_valid,
-    #     num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
-
-    x_train = np.nan_to_num(x_train)
-    x_valid = np.nan_to_num(x_valid)
-    lr = LogisticRegression(
-        C=0.1, solver='newton-cg',
-        class_weight={1: 0.472, 0: 1.309}, n_jobs=-1, max_iter=1000)
-    lr.fit(x_train, y_train)
-    print(log_loss(y_valid, lr.predict_proba(x_valid)[:, 1]))
+    preds, model = runLGB(
+        x_train, y_train, x_valid, y_valid,
+        num_rounds=10000, max_depth=6, eta=0.02, scale_pos_weight=0.36)
 
 elif mode == 'Train':
     # # Categorical transformer on QIDs
@@ -552,35 +541,66 @@ elif mode == 'Train':
     #     x_train = ctf.fit_transform_train(x_train, x_train["is_duplicate"])
     #     x_test = ctf.fit_transform_test(x_train, x_test)
 
+    # Bag of n-grams
+    # print("Fitting Bag")
+    # bag.fit(pd.concat((x_train.question1, x_train.question2)).unique())
+    # print("Transforming Bag of features")
+    # question1_train = bag.transform(x_train['question1'])
+    # question2_train = bag.transform(x_train['question2'])
+    # question1_test = bag.transform(x_test['question1'])
+    # question2_test = bag.transform(x_test['question2'])
+    # bag_delta_test = -(question1_test != question2_test).astype(np.int8)
+    # bag_delta_train = -(question1_train != question2_train).astype(np.int8)
+    # question1_train = 0
+    # question2_train = 0
+    # question1_test = 0
+    # question2_test = 0
+
+    bag_delta_test = csr_matrix(
+        load_npz('../input/bag_delta_test_30k.npz'), dtype=np.int8)
+
     # process pipeline
-    x_train = pipe.fit_transform(x_train, y_train)
+    # x_train = pipe.fit_transform(x_train, y_train)
     x_test = pipe.transform(x_test)
 
     # # add sparse features
-    # print("Read sparse matrix")
-    # bag_delta_train = csr_matrix(
-    #     load_npz('../input/bag_delta_train.npz'), dtype=np.int8)
-    # print("Merge sparse matrix")
+    # print("Merge sparse matrices")
     # x_train = hstack([csr_matrix(x_train), bag_delta_train])
     # bag_delta_train = 0
-    # bag_delta_test = 0
 
-    print("Start training")
+    # print("Start training")
+    # predictions, model = runLGB(
+    #     x_train, y_train,
+    #     num_rounds=1924, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+    # x_train = 0
 
-    # predictions, model = runXGB(
-    #     x_train, y_train, x_test,
-    #     num_rounds=6000, max_depth=6, eta=0.1)
+    # print("Saving model")
+    # model.save_model("lightgbm.model")
 
-    predictions, model = runLGB(
-        x_train, y_train, x_test,
-        num_rounds=1161, max_depth=6, eta=0.02, scale_pos_weight=0.36)
+    print("Loading model")
+    model = lgb.Booster(model_file='lightgbm.model')
+
+    print("Predicting test using 100 fold")
+    kfold = KFold(100)
+    it = 0
+    predictions = np.ones((x_test.shape[0], 1)) * (-1)
+    for (tr_idx, cv_idx) in kfold.split(x_test):
+        x_fold = hstack(
+            [csr_matrix(x_test[cv_idx, :]), bag_delta_test[cv_idx, :]])
+        predictions[cv_idx] = model.predict(x_fold).reshape(-1, 1)
+        it += 1
+        print("finished fold: ", it)
+
+    # x_test = hstack([csr_matrix(x_test), bag_delta_test])
+    # bad_delta_test = 0
+    # predictions = model.predict(x_test)
 
     # creating submission
-    print("Predicting test")
+    print("Writing submission")
     preds = pd.DataFrame()
     preds['test_id'] = test['test_id']
     preds['is_duplicate'] = predictions
-    create_submission(0.169939, preds, model)
+    create_submission(0.154297, preds, model)
 
 elif mode == 'TrainSparse':
     # process pipeline
@@ -629,70 +649,81 @@ elif mode == 'MetaTrain':
         alpha=1e-5, batch_size=200,
         hidden_layer_sizes=(256, 128), random_state=1)
 
+    bag_delta_train = csr_matrix(
+        load_npz('../input/bag_delta_train_30k.npz'), dtype=np.int8)
+
     # process pipeline
     x_train = pipe.fit_transform(x_train, y_train)
-    x_test = pipe.transform(x_test)
+    # x_test = pipe.transform(x_test)
 
     # initiate meta array
     x_train_meta = np.ones((x_train.shape[0], 1)) * (-1)
-    x_test_meta = np.ones((x_test.shape[0], 1)) * (-1)
+    # x_test_meta = np.ones((x_test.shape[0], 1)) * (-1)
 
     # predicting train out-of-fold
     kfold = StratifiedKFold(5)
 
     # lightgbm
     print("Start LightGBM")
+    it = 0
     # Train
     res = np.ones((x_train.shape[0], 1)) * (-1)
     for (tr_idx, cv_idx) in kfold.split(x_train, y_train):
+        cv_fold = csr_matrix(hstack(
+            [csr_matrix(x_train[cv_idx, :]), bag_delta_train[cv_idx]]))
+        tr_fold = csr_matrix(hstack(
+            [csr_matrix(x_train[tr_idx, :]), bag_delta_train[tr_idx]]))
         preds, model = runLGB(
-            x_train[tr_idx, :], y_train[tr_idx], x_train[cv_idx, :],
-            num_rounds=1000, max_depth=6, eta=0.02,
+            tr_fold, y_train[tr_idx], cv_fold,
+            num_rounds=1924, max_depth=6, eta=0.02,
             verbose_eval=100)
         res[cv_idx] = preds.reshape(-1, 1)
+        it += 1
+        print("Finished fold: ", it)
     x_train_meta = np.column_stack((x_train_meta, res))
-    # Test
-    preds, model = runLGB(
-        x_train, y_train, x_test, verbose_eval=100,
-        num_rounds=1000, max_depth=6, eta=0.02)
-    x_test_meta = np.column_stack((x_test_meta, preds))
 
-    # other clf section
-    x_train = np.nan_to_num(x_train)
-    x_test = np.nan_to_num(x_test)
-    minmax = MinMaxScaler()
-    x_train = minmax.fit_transform(x_train)
-    x_test = minmax.transform(x_test)
+    # # Test
+    # preds, model = runLGB(
+    #     x_train, y_train, x_test, verbose_eval=100,
+    #     num_rounds=1000, max_depth=6, eta=0.02)
+    # x_test_meta = np.column_stack((x_test_meta, preds))
 
-    for (clf, name) in [(rfc, 'RFC'), (nn, 'NN')]:
-        print("Starting ", name)
-        # Train
-        res = np.ones((x_train.shape[0], 1)) * (-1)
-        for (tr_idx, cv_idx) in kfold.split(x_train, y_train):
-            clf.fit(x_train[tr_idx, :], y_train[tr_idx])
-            preds = clf.predict_proba(x_train[cv_idx, :])[:, 1]
-            print("Finished ", name, " fold...")
-            res[cv_idx] = preds.reshape(-1, 1)
-        x_train_meta = np.column_stack((x_train_meta, res))
-        # Test
-        clf.fit(x_train, y_train)
-        preds = clf.predict_proba(x_test)[:, 1]
-        x_test_meta = np.column_stack((x_test_meta, preds))
-        print("Finished ", name)
+    # # other clf section
+    # x_train = np.nan_to_num(x_train)
+    # x_test = np.nan_to_num(x_test)
+    # minmax = MinMaxScaler()
+    # x_train = minmax.fit_transform(x_train)
+    # x_test = minmax.transform(x_test)
+
+    # for (clf, name) in [(rfc, 'RFC'), (nn, 'NN')]:
+    #     print("Starting ", name)
+    #     # Train
+    #     res = np.ones((x_train.shape[0], 1)) * (-1)
+    #     for (tr_idx, cv_idx) in kfold.split(x_train, y_train):
+    #         clf.fit(x_train[tr_idx, :], y_train[tr_idx])
+    #         preds = clf.predict_proba(x_train[cv_idx, :])[:, 1]
+    #         print("Finished ", name, " fold...")
+    #         res[cv_idx] = preds.reshape(-1, 1)
+    #     x_train_meta = np.column_stack((x_train_meta, res))
+    #     # Test
+    #     clf.fit(x_train, y_train)
+    #     preds = clf.predict_proba(x_test)[:, 1]
+    #     x_test_meta = np.column_stack((x_test_meta, preds))
+    #     print("Finished ", name)
 
     # Remove dummy column
     x_train_meta = x_train_meta[:, 1:]
-    x_test_meta = x_test_meta[:, 1:]
+    # x_test_meta = x_test_meta[:, 1:]
 
     np.savetxt("meta_train_best_single", x_train_meta)
-    np.savetxt("meta_test_best_single", x_test_meta)
+    # np.savetxt("meta_test_best_single", x_test_meta)
 
     # merging
-    cols = ['lgb-5', 'rfc-5', 'nn-5']
+    cols = ['lgb-30']
     x_train_meta = pd.DataFrame(x_train_meta)
     x_train_meta.columns = cols
-    x_test_meta = pd.DataFrame(x_test_meta)
-    x_test_meta.columns = cols
+    # x_test_meta = pd.DataFrame(x_test_meta)
+    # x_test_meta.columns = cols
 
     x_train_new = pd.concat([
         pd.read_csv('../input/best_single_meta_train.csv'),
@@ -702,7 +733,7 @@ elif mode == 'MetaTrain':
         x_test_meta], axis=1)
 
     x_train_new.to_csv('../input/best_single_meta_train.csv', index=False)
-    x_test_new.to_csv('../input/best_single_meta_test.csv', index=False)
+    # x_test_new.to_csv('../input/best_single_meta_test.csv', index=False)
 
     # predictions, model = runLGB(
     #     x_train_meta, y_train, x_test_meta,
